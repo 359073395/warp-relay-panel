@@ -1,0 +1,9 @@
+core/
+data/
+build/
+dist/
+release/
+*.spec
+__pycache__/
+*.pyc
+*.log

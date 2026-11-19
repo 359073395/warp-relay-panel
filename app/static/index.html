@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>极简防失联 · 家宽链式助手</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --card: #131c31;
+      --border: rgba(255, 255, 255, 0.09);
+      --input: #090e1a;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --blue: #3b82f6;
+      --green: #10b981;
+      --red: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at top, #172554 0%, var(--bg) 60%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 18px 16px 32px;
+    }
+    .wrap { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 12px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--border);
+    }
+    .brand { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .pill {
+      font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+      background: rgba(148,163,184,0.16); color: #cbd5e1;
+    }
+    .pill.ok { background: rgba(16,185,129,0.18); color: #34d399; }
+    .pill.warn { background: rgba(245,158,11,0.18); color: #fbbf24; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .hero {
+      background: linear-gradient(135deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.92));
+      border-color: rgba(59, 130, 246, 0.3);
+      flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px;
+    }
+    .connect-btn {
+      min-width: 156px; padding: 14px 26px; border-radius: 999px; border: none;
+      font-size: 16px; font-weight: 700; cursor: pointer; color: #fff;
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      box-shadow: 0 8px 22px rgba(37, 99, 235, 0.45);
+      transition: transform 0.15s ease;
+    }
+    .connect-btn:hover { transform: translateY(-1px); }
+    .connect-btn.connected {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      box-shadow: 0 8px 22px rgba(220, 38, 38, 0.4);
+    }
+    .connect-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .seg { display: inline-flex; background: var(--input); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 3px; }
+    .seg button {
+      border: none; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600;
+      padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    }
+    .seg button.active { background: rgba(59,130,246,0.28); color: #fff; }
+
+    .status-line {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px;
+      padding: 12px 14px; border-radius: 12px; background: var(--input); border: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .val { font-weight: 600; word-break: break-all; }
+
+    .tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 10px; flex-wrap: wrap; }
+    .tab-btn {
+      border: 1px solid var(--border); background: var(--input); color: var(--muted);
+      padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .tab-btn.active { background: rgba(59,130,246,0.22); border-color: #60a5fa; color: #fff; }
+    .tab-panel { display: none; flex-direction: column; gap: 12px; }
+    .tab-panel.active { display: flex; }
+
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    input, select, textarea {
+      background: var(--input); border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); padding: 8px 12px; font-size: 13px; outline: none; font-family: inherit;
+    }
+    textarea { width: 100%; min-height: 64px; resize: vertical; font-family: ui-monospace, Consolas, monospace; }
+
+    .btn {
+      background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: var(--text);
+      padding: 7px 13px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    .btn:hover { background: rgba(255,255,255,0.14); }
+    .btn.primary { background: var(--blue); border-color: #60a5fa; color: #fff; }
+    .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+    .btn.danger { color: #fca5a5; border-color: rgba(239,68,68,0.3); }
+
+    .list { display: flex; flex-direction: column; gap: 7px; max-height: 300px; overflow-y: auto; }
+    .item {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 10px 13px; border-radius: 11px; background: var(--input); border: 1px solid var(--border);
+      font-size: 13px; cursor: pointer; transition: border-color 0.15s;
+    }
+    .item:hover { border-color: rgba(96,165,250,0.45); }
+    .item.selected { border-color: var(--green); background: rgba(16,185,129,0.12); }
+    .meta { color: var(--muted); font-size: 12px; }
+    .tag {
+      display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 700;
+      background: rgba(16,185,129,0.18); color: #34d399; margin-left: 6px;
+    }
+    .tag.dc { background: rgba(148,163,184,0.18); color: #cbd5e1; }
+    .hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .section { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+    pre.logs {
+      background: #060913; border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+      font-size: 12px; color: #94a3b8; max-height: 140px; overflow: auto; white-space: pre-wrap;
+    }
+    .toast {
+      position: fixed; bottom: 18px; right: 18px; padding: 10px 16px; border-radius: 10px;
+      background: #1e293b; border: 1px solid #60a5fa; color: #fff; font-size: 13px; font-weight: 600;
+      display: none; z-index: 999; max-width: 380px;
+    }
+    .toast.err { border-color: var(--red); background: #450a0a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- 顶栏 -->
+    <div class="topbar">
+      <div class="brand">
+        🛡️ 极简防失联 · 家宽链式助手
+        <span id="adminBadge" class="pill">检测中</span>
+      </div>
+      <div class="row">
+        <button id="elevateBtn" class="btn sm" style="display:none" onclick="elevateAdmin()">⚡ 管理员重启(开TUN)</button>
+        <button class="btn sm" onclick="refreshState()">🔄 刷新</button>
+      </div>
+    </div>
+
+    <!-- 主控开关区 -->
+    <div class="card hero">
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <div class="row">
+          <span class="label" style="margin:0; width:64px;">接管方式</span>
+          <div class="seg">
+            <button id="pmSystem" onclick="updateSetting({proxy_mode:'system'})">系统代理</button>
+            <button id="pmTun" onclick="updateSetting({proxy_mode:'tun'})">TUN 全局网卡</button>
+          </div>
+        </div>
+        <div class="row">
+          <span class="label" style="margin:0; width:64px;">分流规则</span>
+          <div class="seg">
+            <button id="rmBypass" onclick="updateSetting({route_mode:'bypass_cn'})">大陆分流（国内直连）</button>
+            <button id="rmGlobal" onclick="updateSetting({route_mode:'global'})">全局代理</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+        <button id="connectBtn" class="connect-btn" onclick="toggleConnect()">一键连接</button>
+        <button class="btn sm" onclick="probeExit()">🌍 检测出口 IP</button>
+      </div>
+    </div>
+
+    <!-- 实时状态 -->
+    <div class="status-line">
+      <div>
+        <div class="label">连接状态</div>
+        <div class="val" id="stRunning">未连接</div>
+      </div>
+      <div>
+        <div class="label">第一跳（防失联通道）</div>
+        <div class="val" id="stUnderlay">-</div>
+      </div>
+      <div>
+        <div class="label">第二跳（最终出口）</div>
+        <div class="val" id="stExit">-</div>
+      </div>
+      <div>
+        <div class="label">真实出口 IP & 延迟</div>
+        <div class="val" id="stProbe">连接后可点击检测</div>
+      </div>
+    </div>
+
+    <!-- 出口与节点选择（3个极简标签页） -->
+    <div class="card">
+      <div class="tabs">
+        <button class="tab-btn active" id="tabBtnVpngate" onclick="switchTab('vpngate')">🏡 免费家宽 (VPN Gate)</button>
+        <button class="tab-btn" id="tabBtnDirect" onclick="switchTab('direct')">🚀 防失联直出 (WARP)</button>
+        <button class="tab-btn" id="tabBtnCustom" onclick="switchTab('custom')">⚙️ 自定义前置 / 我的住宅 IP</button>
+      </div>
+
+      <!-- Tab 1: VPN Gate 家宽 -->
+      <div class="tab-panel active" id="tabVpngate">
+        <div class="row" style="justify-content:space-between;">
+          <div class="row">
+            <select id="vgClassFilter" onchange="renderVpngateList()">
+              <option value="residential">仅看家宽节点</option>
+              <option value="all">显示全部 (家宽+机房)</option>
+            </select>
+            <select id="vgCountryFilter" onchange="renderVpngateList()">
+              <option value="ALL">全部国家/地区</option>
+            </select>
+          </div>
+          <div class="row">
+            <button class="btn sm" onclick="testVpngate()">⚡ 测可用并选最快</button>
+            <button class="btn sm primary" onclick="refreshVpngate()">🔄 刷新家宽列表</button>
+          </div>
+        </div>
+        <p class="hint">自动先走「第一跳 WARP / 自建前置」穿透防火墙，再链式连到下方选中的 <strong>VPN Gate 志愿家宽节点</strong>（点击任意一行即可选中出口）。</p>
+        <div class="list" id="vgList"></div>
+      </div>
+
+      <!-- Tab 2: 防失联直出 -->
+      <div class="tab-panel" id="tabDirect">
+        <div class="row" style="justify-content:space-between;">
+          <div>
+            <strong>只走第一跳防失联出网（不套第二跳住宅）</strong>
+            <div class="hint">平时刷网页、看视频直接用 WARP + 公益节点备胎，速度最快、延迟最低。</div>
+          </div>
+          <button class="btn sm primary" onclick="useDirectMode()">启用此模式</button>
+        </div>
+        <div class="item" style="cursor:default;">
+          <div>
+            <div><strong>Cloudflare WARP</strong> <span id="warpMeta" class="meta"></span></div>
+            <label class="hint"><input type="checkbox" id="awgCheck" onchange="updateSetting({use_awg:this.checked})" /> 启用 AmneziaWG 防干扰混淆</label>
+          </div>
+          <button class="btn sm" onclick="scanWarp()">重新扫 WARP</button>
+        </div>
+        <div class="item" style="cursor:default;">
+          <div>
+            <div><strong>公益备胎池</strong> <span id="pubMeta" class="meta"></span></div>
+            <label class="hint"><input type="checkbox" id="pubCheck" onchange="updateSetting({enable_public_backup:this.checked})" /> 纳入自动防失联备胎</label>
+          </div>
+          <button class="btn sm" onclick="refreshPublic()">刷新备胎</button>
+        </div>
+      </div>
+
+      <!-- Tab 3: 自定义前置与我的住宅 IP -->
+      <div class="tab-panel" id="tabCustom">
+        <div>
+          <div class="label">一、我的私人落地住宅 IP（仅存本机，绝不上传）</div>
+          <div class="row" style="margin-bottom:8px;">
+            <input id="exitRemark" placeholder="备注名(如: 美国住宅)" style="width:140px;" />
+            <select id="exitDefaultType" style="width:105px;">
+              <option value="socks5">SOCKS5</option>
+              <option value="http">HTTP</option>
+            </select>
+            <input id="exitRaw" placeholder="粘贴 IP:端口:账号:密码 或 socks5://... / vless://..." style="flex:1;" />
+            <button class="btn sm primary" onclick="addExit()">+ 添加并用此出口</button>
+          </div>
+          <div class="list" id="exitList" style="max-height:130px;"></div>
+        </div>
+
+        <div class="section">
+          <div class="label">二、前置防失联策略 & 我的前置节点 / 订阅（防止公开节点全部不可用）</div>
+          <div class="row">
+            <select id="underlayStrategy" style="flex:1;" onchange="updateSetting({underlay_strategy:this.value})">
+              <option value="auto">自动优选（我的前置 + WARP + 公益备胎）</option>
+              <option value="custom_only">仅用我添加的前置节点 / 订阅</option>
+              <option value="warp_only">仅用内置 WARP</option>
+              <option value="manual">手动指定某一条前置节点</option>
+            </select>
+            <select id="manualUnderlaySelect" style="flex:1; display:none;" onchange="updateSetting({selected_underlay:this.value})"></select>
+          </div>
+
+          <div class="row">
+            <input id="subNameInput" placeholder="订阅备注" style="width:110px;" />
+            <input id="subUrlInput" placeholder="前置订阅链接 https://... (支持 Clash YAML / Base64)" style="flex:1;" />
+            <button class="btn sm primary" onclick="addUnderlaySub()">+ 添加订阅</button>
+            <button class="btn sm" onclick="refreshSubs()">更新</button>
+          </div>
+          <div class="list" id="subList" style="max-height:110px;"></div>
+
+          <textarea id="underlayInput" placeholder="粘贴自己的前置单条节点（支持多行 vless / vmess / trojan / ss / hy2 / socks5）"></textarea>
+          <div class="row" style="justify-content:flex-end;">
+            <button class="btn sm primary" onclick="addUnderlays()">+ 添加前置节点</button>
+          </div>
+          <div class="list" id="underlayList" style="max-height:110px;"></div>
+        </div>
+
+        <details>
+          <summary class="hint" style="cursor:pointer;">展开查看 mihomo 内核日志</summary>
+          <pre class="logs" id="logsBox" style="margin-top:8px;">暂无日志</pre>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    let STATE = null;
+
+    function showToast(msg, isErr = false) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = 'toast' + (isErr ? ' err' : '');
+      el.style.display = 'block';
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => el.style.display = 'none', 3200);
+    }
+
+    async function api(path, body = null) {
+      const opts = body !== null
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : { method: 'GET' };
+      const res = await fetch(path, opts);
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || '请求失败');
+      return data;
+    }
+
+    function esc(v) {
+      return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    function switchTab(tab) {
+      const map = { vpngate: ['tabBtnVpngate', 'tabVpngate'], direct: ['tabBtnDirect', 'tabDirect'], custom: ['tabBtnCustom', 'tabCustom'] };
+      Object.entries(map).forEach(([k, [bid, pid]]) => {
+        document.getElementById(bid).classList.toggle('active', k === tab);
+        document.getElementById(pid).classList.toggle('active', k === tab);
+      });
+    }
+
+    function renderVpngateList() {
+      if (!STATE) return;
+      const nodes = STATE.vpngate_nodes || [];
+      const clsFilter = document.getElementById('vgClassFilter').value;
+      const cSel = document.getElementById('vgCountryFilter');
+      const prevCountry = cSel.value || 'ALL';
+
+      const countries = Array.from(new Set(nodes.map(n => n.country_short))).sort();
+      cSel.innerHTML = '<option value="ALL">全部国家/地区</option>';
+      countries.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c; opt.textContent = c;
+        if (c === prevCountry) opt.selected = true;
+        cSel.appendChild(opt);
+      });
+
+      const listEl = document.getElementById('vgList');
+      const filtered = nodes.filter(n => {
+        if (clsFilter === 'residential' && n.line_class !== 'residential') return false;
+        if (cSel.value !== 'ALL' && n.country_short !== cSel.value) return false;
+        return true;
+      });
+
+      if (!nodes.length) {
+        listEl.innerHTML = '<div class="hint">暂无缓存列表，请点击上方【🔄 刷新家宽列表】（会自动通过 WARP 拉取最新志愿节点）。</div>';
+        return;
+      }
+      if (!filtered.length) {
+        listEl.innerHTML = '<div class="hint">当前筛选条件下没有节点，可切换“显示全部”或更换国家。</div>';
+        return;
+      }
+
+      const selId = STATE.settings.selected_vpngate_id;
+      const isVgMode = STATE.settings.exit_mode === 'vpngate';
+      listEl.innerHTML = '';
+      filtered.slice(0, 80).forEach(n => {
+        const isSel = isVgMode && n.id === selId;
+        const div = document.createElement('div');
+        div.className = 'item' + (isSel ? ' selected' : '');
+        div.onclick = () => selectVpngate(n.id);
+        const tagCls = n.line_class === 'residential' ? 'tag' : 'tag dc';
+        const tagTxt = n.line_class === 'residential' ? '家宽' : '机房';
+        let delayHtml = '';
+        if (typeof n.delay_ms === 'number') {
+          delayHtml = n.delay_ms > 0
+            ? `<span class="tag">${n.delay_ms}ms</span>`
+            : `<span class="tag dc">超时</span>`;
+        }
+        div.innerHTML = `
+          <div>
+            <strong>${isSel ? '✅ ' : ''}${esc(n.name)}</strong>
+            <span class="${tagCls}">${tagTxt}</span>${delayHtml}
+            <span class="meta"> · ${esc(n.isp || '')}</span>
+          </div>
+          <div class="meta">${esc(n.proto).toUpperCase()} · ${n.speed_mbps} Mbps</div>`;
+        listEl.appendChild(div);
+      });
+    }
+
+    function render(state) {
+      STATE = state;
+      const s = state.settings;
+      const rt = state.runtime;
+
+      const ab = document.getElementById('adminBadge');
+      const eb = document.getElementById('elevateBtn');
+      ab.textContent = state.is_admin ? '管理员(TUN可用)' : '普通权限';
+      ab.className = 'pill ' + (state.is_admin ? 'ok' : 'warn');
+      eb.style.display = state.is_admin ? 'none' : 'inline-block';
+
+      document.getElementById('pmSystem').classList.toggle('active', s.proxy_mode === 'system');
+      document.getElementById('pmTun').classList.toggle('active', s.proxy_mode === 'tun');
+      document.getElementById('rmBypass').classList.toggle('active', s.route_mode === 'bypass_cn');
+      document.getElementById('rmGlobal').classList.toggle('active', s.route_mode === 'global');
+
+      const cbtn = document.getElementById('connectBtn');
+      if (rt.running) {
+        cbtn.textContent = '断开连接';
+        cbtn.classList.add('connected');
+        document.getElementById('stRunning').textContent = `已连接 (${rt.mode === 'tun' ? 'TUN网卡' : '系统代理 :17890'})`;
+        document.getElementById('stRunning').style.color = '#34d399';
+      } else {
+        cbtn.textContent = '一键连接';
+        cbtn.classList.remove('connected');
+        document.getElementById('stRunning').textContent = '未连接';
+        document.getElementById('stRunning').style.color = '#94a3b8';
+      }
+
+      document.getElementById('stUnderlay').textContent = rt.current_underlay || '-';
+      const exitLabel = s.exit_mode === 'direct_underlay' ? '仅防失联直出' : (s.exit_mode === 'vpngate' ? 'VPN Gate 家宽链式' : '私人住宅 IP 链式');
+      document.getElementById('stExit').textContent = rt.current_exit || exitLabel;
+
+      document.getElementById('underlayStrategy').value = s.underlay_strategy;
+      document.getElementById('awgCheck').checked = !!s.use_awg;
+      document.getElementById('pubCheck').checked = !!s.enable_public_backup;
+
+      const mSel = document.getElementById('manualUnderlaySelect');
+      mSel.style.display = s.underlay_strategy === 'manual' ? 'inline-block' : 'none';
+      mSel.innerHTML = '';
+      (state.underlay_names || []).forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n; opt.textContent = n;
+        if (n === s.selected_underlay) opt.selected = true;
+        mSel.appendChild(opt);
+      });
+
+      document.getElementById('warpMeta').textContent = state.warp.has_account ? `(${state.warp.endpoint_count} 端点)` : '(首次自动注册)';
+      document.getElementById('pubMeta').textContent = `(${state.public_backups_count} 个)`;
+
+      renderVpngateList();
+
+      const ul = document.getElementById('underlayList');
+      ul.innerHTML = state.custom_underlays.length ? '' : '<div class="hint">暂无自定义前置节点</div>';
+      state.custom_underlays.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerHTML = `<div><strong>${esc(item.name)}</strong> <span class="meta">${esc(item.type)} · ${esc(item.server)}:${esc(item.port)}</span></div>
+          <button class="btn sm danger" onclick="delUnderlay('${item.id}')">删除</button>`;
+        ul.appendChild(div);
+      });
+
+      const sl = document.getElementById('subList');
+      sl.innerHTML = state.underlay_subs.length ? '' : '<div class="hint">暂无自定义前置订阅</div>';
+      state.underlay_subs.forEach(sub => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerHTML = `<div><strong>${esc(sub.name)}</strong> <span class="meta">${sub.count} 节点 · ${esc(sub.updated_at)}</span></div>
+          <button class="btn sm danger" onclick="delSub('${sub.id}')">删除</button>`;
+        sl.appendChild(div);
+      });
+
+      const el = document.getElementById('exitList');
+      el.innerHTML = state.exits.length ? '' : '<div class="hint">暂无私人住宅 IP</div>';
+      state.exits.forEach(item => {
+        const isSel = s.exit_mode === 'residential' && item.id === s.selected_exit_id;
+        const div = document.createElement('div');
+        div.className = 'item' + (isSel ? ' selected' : '');
+        div.onclick = (ev) => {
+          if (ev.target.tagName === 'BUTTON') return;
+          updateSetting({ selected_exit_id: item.id, exit_mode: 'residential' });
+        };
+        div.innerHTML = `<div><strong>${isSel ? '✅ ' : ''}${esc(item.name)}</strong> <span class="meta">${esc(item.type)} · ${esc(item.server)}:${esc(item.port)}</span></div>
+          <button class="btn sm danger" onclick="delExit('${item.id}')">删除</button>`;
+        el.appendChild(div);
+      });
+
+      document.getElementById('logsBox').textContent = state.logs || '暂无日志';
+    }
+
+    async function refreshState() {
+      try { render(await api('/api/state')); } catch (e) { showToast(e.message, true); }
+    }
+
+    async function updateSetting(patch) {
+      try {
+        await api('/api/settings', patch);
+        await refreshState();
+        showToast('已切换并应用');
+      } catch (e) {
+        showToast(e.message, true);
+        await refreshState();
+      }
+    }
+
+    async function selectVpngate(id) {
+      await updateSetting({ exit_mode: 'vpngate', selected_vpngate_id: id });
+    }
+
+    async function useDirectMode() {
+      await updateSetting({ exit_mode: 'direct_underlay' });
+    }
+
+    async function refreshVpngate() {
+      showToast('正在通过前置通道拉取并识别 VPN Gate 家宽节点...');
+      try {
+        const r = await api('/api/vpngate/refresh', {});
+        showToast(`刷新成功！共 ${r.count} 个节点，其中 ${r.residential_count} 个家宽`);
+        await refreshState();
+      } catch (e) { showToast(e.message, true); }
+    }
+
+    async function testVpngate() {
+      const country = document.getElementById('vgCountryFilter').value || 'ALL';
+      showToast('正在并发测速前 12 个家宽节点（约需 6-10 秒）...');
+      try {
+        const r = await api('/api/vpngate/test', { country });
+        if (r.alive > 0) {
+          showToast(`测出 ${r.alive}/${r.tested} 个可用，已选中最快: ${r.best_name} (${r.best_ms}ms)`);
+        } else {
+          showToast(`本轮 ${r.tested} 个节点均超时，建议刷新列表或切换国家重试`, true);
+        }
+        await refreshState();
+      } catch (e) { showToast(e.message, true); }
+    }
+
+    async function toggleConnect() {
+      const btn = document.getElementById('connectBtn');
+      btn.disabled = true;
+      try {
+        if (STATE && STATE.runtime.running) {
+          await api('/api/disconnect', {});
+          showToast('已断开并恢复系统代理');
+          document.getElementById('stProbe').textContent = '未连接';
+        } else {
+          btn.textContent = '连接中...';
+          await api('/api/connect', {});
+          showToast('连接成功！正在探测出口 IP...');
+          await refreshState();
+          probeExit();
+          return;
+        }
+      } catch (e) {
+        showToast(e.message, true);
+      } finally {
+        btn.disabled = false;
+        await refreshState();
+      }
+    }
+
+    async function probeExit() {
+      document.getElementById('stProbe').textContent = '探测中...';
+      try {
+        const r = await api('/api/probe', {});
+        document.getElementById('stProbe').textContent = `${r.ip} (${r.country} ${r.city}) · ${r.isp} · ${r.latency_ms}ms`;
+      } catch (e) {
+        document.getElementById('stProbe').textContent = '探测失败';
+        showToast(e.message, true);
+      }
+    }
+
+    async function scanWarp() {
+      showToast('正在扫描 WARP 端点...');
+      try { const r = await api('/api/warp/scan', {}); showToast(`已更新 ${r.count} 个 WARP 端点`); await refreshState(); }
+      catch (e) { showToast(e.message, true); }
+    }
+
+    async function refreshPublic() {
+      showToast('正在刷新公益备胎...');
+      try { const r = await api('/api/public/refresh', {}); showToast(`已加载 ${r.count} 个公益节点`); await refreshState(); }
+      catch (e) { showToast(e.message, true); }
+    }
+
+    async function addUnderlays() {
+      const text = document.getElementById('underlayInput').value;
+      if (!text.trim()) return;
+      try {
+        const r = await api('/api/underlay/add', { text });
+        document.getElementById('underlayInput').value = '';
+        showToast(`已添加 ${r.added} 条前置节点`);
+        await refreshState();
+      } catch (e) { showToast(e.message, true); }
+    }
+
+    async function delUnderlay(id) { await api('/api/underlay/delete', { id }); await refreshState(); }
+
+    async function addUnderlaySub() {
+      const name = document.getElementById('subNameInput').value;
+      const url = document.getElementById('subUrlInput').value;
+      if (!url.trim()) return;
+      showToast('正在拉取订阅...');
+      try {
+        const r = await api('/api/underlay/sub/add', { name, url });
+        document.getElementById('subNameInput').value = '';
+        document.getElementById('subUrlInput').value = '';
+        showToast(`订阅解析成功：${r.count} 个节点`);
+        await refreshState();
+      } catch (e) { showToast(e.message, true); }
+    }
+
+    async function refreshSubs() {
+      showToast('正在更新全部前置订阅...');
+      try { const r = await api('/api/underlay/sub/refresh', {}); showToast(`已更新 ${r.updated}/${r.total} 个订阅`); await refreshState(); }
+      catch (e) { showToast(e.message, true); }
+    }
+
+    async function delSub(id) { await api('/api/underlay/sub/delete', { id }); await refreshState(); }
+
+    async function addExit() {
+      const raw = document.getElementById('exitRaw').value;
+      const remark = document.getElementById('exitRemark').value;
+      const default_type = document.getElementById('exitDefaultType').value;
+      if (!raw.trim()) return;
+      try {
+        await api('/api/exit/add', { raw, remark, default_type });
+        document.getElementById('exitRaw').value = '';
+        document.getElementById('exitRemark').value = '';
+        showToast('私人住宅 IP 已添加并切换选中');
+        await refreshState();
+      } catch (e) { showToast(e.message, true); }
+    }
+
+    async function delExit(id) { await api('/api/exit/delete', { id }); await refreshState(); }
+
+    async function elevateAdmin() {
+      try { await api('/api/elevate', {}); showToast('正在以管理员身份重启，请允许弹窗...'); }
+      catch (e) { showToast(e.message, true); }
+    }
+
+    refreshState();
+    setInterval(() => { if (STATE && STATE.runtime && STATE.runtime.running) refreshState(); }, 4000);
+  </script>
+</body>
+</html>
