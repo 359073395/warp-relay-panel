@@ -10,6 +10,10 @@ import urllib.request
 from typing import Any
 
 VPNGATE_API_URL = "https://www.vpngate.net/api/iphone/"
+VPNGATE_API_URLS = (
+    "https://www.vpngate.net/api/iphone/",
+    "http://www.vpngate.net/api/iphone/",
+)
 IP_API_BATCH_URL = "http://ip-api.com/batch?fields=status,countryCode,isp,org,as,mobile,proxy,hosting,query"
 
 HARD_DC_ASNS = {
@@ -176,13 +180,23 @@ def build_mihomo_openvpn_outbound(node: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def fetch_vpngate_nodes(proxy_url: str | None = None, max_nodes: int = 80) -> list[dict[str, Any]]:
+def fetch_vpngate_nodes(proxy_url: str | None = None, max_nodes: int = 80, timeout: float = 12.0) -> list[dict[str, Any]]:
     """拉取并解析 VPN Gate 列表，优先排序家宽节点。"""
     handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url} if proxy_url else {})
     opener = urllib.request.build_opener(handler)
-    req = urllib.request.Request(VPNGATE_API_URL, headers={"User-Agent": "curl/8.0"})
-    with opener.open(req, timeout=18) as resp:
-        raw_csv = resp.read().decode("utf-8", errors="ignore")
+    raw_csv = ""
+    last_err: Exception | None = None
+    for api_url in VPNGATE_API_URLS:
+        try:
+            req = urllib.request.Request(api_url, headers={"User-Agent": "curl/8.0"})
+            with opener.open(req, timeout=timeout) as resp:
+                raw_csv = resp.read().decode("utf-8", errors="ignore")
+            if raw_csv.strip():
+                break
+        except Exception as exc:
+            last_err = exc
+    if not raw_csv.strip():
+        raise RuntimeError(f"拉取免费家宽列表失败: {last_err}")
 
     lines = [ln for ln in raw_csv.splitlines() if ln.strip() and not ln.startswith("*")]
     if not lines:

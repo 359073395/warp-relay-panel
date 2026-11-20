@@ -3,7 +3,15 @@ data/
 build/
 dist/
 release/
+.venv/
 *.spec
 __pycache__/
 *.pyc
 *.log
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/app/libs/
+android/app/src/main/jniLibs/
+android/app/src/main/assets/core/

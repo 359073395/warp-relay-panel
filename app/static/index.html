@@ -3,292 +3,384 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>极简防失联 · 家宽链式助手</title>
+  <title>星桥 · StarBridge</title>
+  <link rel="icon" type="image/png" href="/starbridge.png" />
   <style>
     :root {
-      --bg: #0b1120;
-      --card: #131c31;
-      --border: rgba(255, 255, 255, 0.09);
-      --input: #090e1a;
+      --bg: #090e1a;
+      --panel: #111827;
+      --card: #172033;
+      --border: rgba(255, 255, 255, 0.08);
       --text: #f8fafc;
       --muted: #94a3b8;
       --blue: #3b82f6;
       --green: #10b981;
       --red: #ef4444;
+      --amber: #f59e0b;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: radial-gradient(circle at top, #172554 0%, var(--bg) 60%);
+      background: var(--bg);
       color: var(--text);
-      min-height: 100vh;
-      padding: 18px 16px 32px;
+      display: flex;
     }
-    .wrap { max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 
-    .topbar {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      padding: 12px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--border);
+    /* 左侧主控栏 */
+    .sidebar {
+      width: 300px;
+      flex-shrink: 0;
+      background: linear-gradient(180deg, #111a2e 0%, #0b1120 100%);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 14px 16px;
+      gap: 12px;
+      height: 100vh;
     }
-    .brand { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-    .pill {
-      font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
-      background: rgba(148,163,184,0.16); color: #cbd5e1;
+    .brand-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
     }
-    .pill.ok { background: rgba(16,185,129,0.18); color: #34d399; }
-    .pill.warn { background: rgba(245,158,11,0.18); color: #fbbf24; }
+    .brand { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
 
-    .card {
-      background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px;
-      display: flex; flex-direction: column; gap: 14px;
+    /* 电源圆环按钮 */
+    .power-zone {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      padding: 10px 0 4px;
     }
-    .hero {
-      background: linear-gradient(135deg, rgba(30, 58, 138, 0.45), rgba(15, 23, 42, 0.92));
-      border-color: rgba(59, 130, 246, 0.3);
-      flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px;
+    .power-btn {
+      width: 112px; height: 112px; border-radius: 50%; border: 4px solid rgba(59, 130, 246, 0.35);
+      background: radial-gradient(circle at 35% 30%, #3b82f6, #1d4ed8);
+      color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+      box-shadow: 0 0 28px rgba(37, 99, 235, 0.35);
+      transition: all 0.2s ease;
     }
-    .connect-btn {
-      min-width: 156px; padding: 14px 26px; border-radius: 999px; border: none;
-      font-size: 16px; font-weight: 700; cursor: pointer; color: #fff;
-      background: linear-gradient(135deg, #3b82f6, #2563eb);
-      box-shadow: 0 8px 22px rgba(37, 99, 235, 0.45);
-      transition: transform 0.15s ease;
+    .power-btn:hover { transform: scale(1.03); box-shadow: 0 0 36px rgba(59, 130, 246, 0.55); }
+    .power-btn.connected {
+      border-color: rgba(16, 185, 129, 0.45);
+      background: radial-gradient(circle at 35% 30%, #10b981, #047857);
+      box-shadow: 0 0 32px rgba(16, 185, 129, 0.4);
     }
-    .connect-btn:hover { transform: translateY(-1px); }
-    .connect-btn.connected {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-      box-shadow: 0 8px 22px rgba(220, 38, 38, 0.4);
+    .power-btn.connected:hover {
+      border-color: rgba(239, 68, 68, 0.5);
+      background: radial-gradient(circle at 35% 30%, #ef4444, #b91c1c);
+      box-shadow: 0 0 32px rgba(239, 68, 68, 0.4);
     }
-    .connect-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .power-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .power-sub { font-size: 12px; color: var(--muted); text-align: center; }
 
-    .seg { display: inline-flex; background: var(--input); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 3px; }
-    .seg button {
-      border: none; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600;
-      padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    .info-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 12px;
     }
-    .seg button.active { background: rgba(59,130,246,0.28); color: #fff; }
+    .info-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .info-label { color: var(--muted); white-space: nowrap; }
+    .info-val { font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 175px; }
 
-    .status-line {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px;
-      padding: 12px 14px; border-radius: 12px; background: var(--input); border: 1px solid var(--border);
-      font-size: 13px;
+    .diag-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px 12px; font-size: 12px; display: flex; flex-direction: column; gap: 8px;
     }
-    .label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-    .val { font-weight: 600; word-break: break-all; }
+    .diag-card.ok { border-color: rgba(16, 185, 129, 0.4); background: rgba(6, 78, 59, 0.22); }
+    .diag-card.err { border-color: rgba(239, 68, 68, 0.5); background: rgba(127, 29, 29, 0.28); }
 
-    .tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); padding-bottom: 10px; flex-wrap: wrap; }
+    .mode-footer {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    }
+    .chip-btn {
+      font-size: 12px; font-weight: 600; padding: 7px 8px; border-radius: 9px; cursor: pointer;
+      background: var(--card); color: #cbd5e1; border: 1px solid var(--border); text-align: center;
+    }
+    .chip-btn:hover { border-color: rgba(96, 165, 250, 0.5); color: #fff; }
+    .chip-btn.active { background: rgba(59, 130, 246, 0.18); border-color: rgba(59, 130, 246, 0.45); color: #93c5fd; }
+    .chip-btn.warn { border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; background: rgba(245, 158, 11, 0.12); }
+
+    /* 右侧主区域 */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      min-width: 0;
+      background: var(--bg);
+    }
+    .tab-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+    }
+    .tabs { display: flex; gap: 6px; }
     .tab-btn {
-      border: 1px solid var(--border); background: var(--input); color: var(--muted);
-      padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+      border: 1px solid transparent; background: transparent; color: var(--muted);
+      padding: 7px 14px; border-radius: 9px; font-size: 13px; font-weight: 700; cursor: pointer;
     }
-    .tab-btn.active { background: rgba(59,130,246,0.22); border-color: #60a5fa; color: #fff; }
-    .tab-panel { display: none; flex-direction: column; gap: 12px; }
-    .tab-panel.active { display: flex; }
+    .tab-btn.active { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.4); color: #fff; }
 
-    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    input, select, textarea {
-      background: var(--input); border: 1px solid var(--border); border-radius: 10px;
-      color: var(--text); padding: 8px 12px; font-size: 13px; outline: none; font-family: inherit;
+    .pane {
+      flex: 1; display: none; flex-direction: column; gap: 10px; padding: 12px 16px;
+      overflow: hidden; min-height: 0;
     }
-    textarea { width: 100%; min-height: 64px; resize: vertical; font-family: ui-monospace, Consolas, monospace; }
+    .pane.active { display: flex; }
+
+    .toolbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+    }
+    .seg {
+      display: inline-flex; background: var(--panel); border: 1px solid var(--border);
+      border-radius: 9px; padding: 2px; gap: 2px; flex-wrap: wrap;
+    }
+    .seg button {
+      border: none; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600;
+      padding: 5px 10px; border-radius: 7px; cursor: pointer;
+    }
+    .seg button.active { background: rgba(59, 130, 246, 0.28); color: #fff; }
+
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input, select, textarea {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); padding: 6px 10px; font-size: 12px; outline: none; font-family: inherit;
+    }
+    textarea { width: 100%; min-height: 68px; resize: vertical; font-family: ui-monospace, Consolas, monospace; }
 
     .btn {
-      background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: var(--text);
-      padding: 7px 13px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+      background: rgba(255,255,255,0.07); border: 1px solid var(--border); color: var(--text);
+      padding: 6px 11px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
     }
-    .btn:hover { background: rgba(255,255,255,0.14); }
+    .btn:hover { background: rgba(255,255,255,0.13); }
     .btn.primary { background: var(--blue); border-color: #60a5fa; color: #fff; }
-    .btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+    .btn.xs { padding: 3px 8px; font-size: 11px; border-radius: 6px; }
     .btn.danger { color: #fca5a5; border-color: rgba(239,68,68,0.3); }
 
-    .list { display: flex; flex-direction: column; gap: 7px; max-height: 300px; overflow-y: auto; }
-    .item {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      padding: 10px 13px; border-radius: 11px; background: var(--input); border: 1px solid var(--border);
-      font-size: 13px; cursor: pointer; transition: border-color 0.15s;
+    .node-list {
+      flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 2px;
     }
-    .item:hover { border-color: rgba(96,165,250,0.45); }
-    .item.selected { border-color: var(--green); background: rgba(16,185,129,0.12); }
+    .node-item {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 9px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border);
+      font-size: 13px; cursor: pointer; transition: border-color 0.12s;
+    }
+    .node-item:hover { border-color: rgba(96, 165, 250, 0.45); }
+    .node-item.selected { border-color: var(--green); background: rgba(16, 185, 129, 0.12); }
+
     .meta { color: var(--muted); font-size: 12px; }
     .tag {
-      display: inline-block; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: 700;
-      background: rgba(16,185,129,0.18); color: #34d399; margin-left: 6px;
+      display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: 11px; font-weight: 700;
+      background: rgba(16,185,129,0.18); color: #34d399; margin-left: 5px;
     }
     .tag.dc { background: rgba(148,163,184,0.18); color: #cbd5e1; }
-    .hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
-    .section { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .tag.warn { background: rgba(245,158,11,0.18); color: #fbbf24; }
+    .tag.err { background: rgba(239,68,68,0.18); color: #fca5a5; }
+    .tag.spd { background: rgba(59,130,246,0.2); color: #93c5fd; }
+
+    .switch { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+    .switch input { accent-color: var(--blue); width: 14px; height: 14px; cursor: pointer; }
+
+    .empty-tip {
+      flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+      color: var(--muted); font-size: 13px; border: 1px dashed var(--border); border-radius: 12px; padding: 24px;
+      text-align: center;
+    }
+
+    .task-banner {
+      display: none; align-items: center; justify-content: space-between; gap: 10px;
+      margin: 10px 16px 0; padding: 8px 12px; border-radius: 10px; font-size: 12px; font-weight: 600;
+      background: rgba(59, 130, 246, 0.14); border: 1px solid rgba(59, 130, 246, 0.35); color: #bfdbfe;
+    }
+    .task-banner.show { display: flex; }
+    .task-banner.ok { background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.35); color: #6ee7b7; }
+    .task-banner.err { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.4); color: #fca5a5; }
+
+    .modal-mask {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.65); display: none;
+      align-items: center; justify-content: center; padding: 16px; z-index: 900;
+    }
+    .modal-mask.open { display: flex; }
+    .modal {
+      width: 100%; max-width: 600px; max-height: 85vh; overflow-y: auto;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+      padding: 16px; display: flex; flex-direction: column; gap: 12px;
+    }
     pre.logs {
-      background: #060913; border: 1px solid var(--border); border-radius: 10px; padding: 10px;
-      font-size: 12px; color: #94a3b8; max-height: 140px; overflow: auto; white-space: pre-wrap;
+      background: #060913; border: 1px solid var(--border); border-radius: 9px; padding: 10px;
+      font-size: 12px; color: #94a3b8; max-height: 170px; overflow: auto; white-space: pre-wrap;
+      font-family: ui-monospace, Consolas, monospace;
     }
     .toast {
-      position: fixed; bottom: 18px; right: 18px; padding: 10px 16px; border-radius: 10px;
-      background: #1e293b; border: 1px solid #60a5fa; color: #fff; font-size: 13px; font-weight: 600;
-      display: none; z-index: 999; max-width: 380px;
+      position: fixed; bottom: 14px; right: 16px; padding: 9px 14px; border-radius: 9px;
+      background: #1e293b; border: 1px solid #60a5fa; color: #fff; font-size: 12px; font-weight: 600;
+      display: none; z-index: 999; max-width: 340px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);
     }
     .toast.err { border-color: var(--red); background: #450a0a; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <!-- 顶栏 -->
-    <div class="topbar">
-      <div class="brand">
-        🛡️ 极简防失联 · 家宽链式助手
-        <span id="adminBadge" class="pill">检测中</span>
+  <!-- 左侧控制栏 -->
+  <aside class="sidebar">
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div class="brand-row">
+        <div class="brand" style="display:flex;align-items:center;gap:8px;"><img src="/starbridge.png" alt="StarBridge" style="width:22px;height:22px;border-radius:5px;" /><span>星桥 · StarBridge</span></div>
+        <button class="btn xs" onclick="openSettingsModal()">⚙️ 设置</button>
       </div>
-      <div class="row">
-        <button id="elevateBtn" class="btn sm" style="display:none" onclick="elevateAdmin()">⚡ 管理员重启(开TUN)</button>
-        <button class="btn sm" onclick="refreshState()">🔄 刷新</button>
-      </div>
-    </div>
 
-    <!-- 主控开关区 -->
-    <div class="card hero">
-      <div style="display:flex; flex-direction:column; gap:10px;">
-        <div class="row">
-          <span class="label" style="margin:0; width:64px;">接管方式</span>
-          <div class="seg">
-            <button id="pmSystem" onclick="updateSetting({proxy_mode:'system'})">系统代理</button>
-            <button id="pmTun" onclick="updateSetting({proxy_mode:'tun'})">TUN 全局网卡</button>
-          </div>
+      <div class="power-zone">
+        <button id="powerBtn" class="power-btn" onclick="toggleConnect()">
+          <span style="font-size:22px;">⏻</span>
+          <span id="powerLabel">一键连接</span>
+        </button>
+        <div id="powerSub" class="power-sub">未连接</div>
+        <label class="switch" title="勾选后：一键连接时自动测速选最优，且每隔 1 小时在后台自动更新测速并切换最优节点">
+          <input type="checkbox" id="smartAutoCheck" onchange="toggleSmartAuto(this.checked)" />
+          <span>智能选择节点 (每小时优选)</span>
+        </label>
+        <div id="smartMetaLine" class="meta" style="font-size:11px; text-align:center; display:none;"></div>
+      </div>
+
+      <!-- 当前线路概览 -->
+      <div class="info-card">
+        <div class="info-line">
+          <span class="info-label">加速线路</span>
+          <span class="info-val" id="sumEntry">自动免费</span>
         </div>
-        <div class="row">
-          <span class="label" style="margin:0; width:64px;">分流规则</span>
-          <div class="seg">
-            <button id="rmBypass" onclick="updateSetting({route_mode:'bypass_cn'})">大陆分流（国内直连）</button>
-            <button id="rmGlobal" onclick="updateSetting({route_mode:'global'})">全局代理</button>
-          </div>
+        <div class="info-line">
+          <span class="info-label">住宅出口</span>
+          <label class="switch" style="color:var(--text);">
+            <input type="checkbox" id="useExitCheck" onchange="toggleExitHop(this.checked)" />
+            <span id="sumExit">未启用</span>
+          </label>
+        </div>
+        <div id="exitHintLine" class="meta" style="font-size:11px; color:#94a3b8; text-align:right; margin-top:-4px;">需要住宅 IP 再勾选启用</div>
+        <div class="info-line" id="trafficLine" style="display:none;">
+          <span class="info-label">实时速率</span>
+          <span class="info-val" id="sumTraffic">-</span>
         </div>
       </div>
 
-      <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-        <button id="connectBtn" class="connect-btn" onclick="toggleConnect()">一键连接</button>
-        <button class="btn sm" onclick="probeExit()">🌍 检测出口 IP</button>
+      <!-- 状态与故障一键处理 -->
+      <div class="diag-card" id="diagCard">
+        <div id="diagText" class="meta">选择线路后点击连接即可开始</div>
+        <div class="row" id="diagActions" style="gap:6px;"></div>
       </div>
     </div>
 
-    <!-- 实时状态 -->
-    <div class="status-line">
-      <div>
-        <div class="label">连接状态</div>
-        <div class="val" id="stRunning">未连接</div>
-      </div>
-      <div>
-        <div class="label">第一跳（防失联通道）</div>
-        <div class="val" id="stUnderlay">-</div>
-      </div>
-      <div>
-        <div class="label">第二跳（最终出口）</div>
-        <div class="val" id="stExit">-</div>
-      </div>
-      <div>
-        <div class="label">真实出口 IP & 延迟</div>
-        <div class="val" id="stProbe">连接后可点击检测</div>
+    <!-- 底部接管与分流切换 -->
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button id="downloadCoreBtn" class="chip-btn warn" style="display:none;" onclick="downloadCore(false)">⬇️ 缺少内核，点击一键下载</button>
+      <div class="mode-footer">
+        <button id="proxyModeChip" class="chip-btn active" onclick="cycleProxyMode()">系统代理 ⇄</button>
+        <button id="routeModeChip" class="chip-btn active" onclick="cycleRouteMode()">大陆分流 ⇄</button>
       </div>
     </div>
+  </aside>
 
-    <!-- 出口与节点选择（3个极简标签页） -->
-    <div class="card">
+  <!-- 右侧节点管理区 -->
+  <main class="main">
+    <div class="tab-bar">
       <div class="tabs">
-        <button class="tab-btn active" id="tabBtnVpngate" onclick="switchTab('vpngate')">🏡 免费家宽 (VPN Gate)</button>
-        <button class="tab-btn" id="tabBtnDirect" onclick="switchTab('direct')">🚀 防失联直出 (WARP)</button>
-        <button class="tab-btn" id="tabBtnCustom" onclick="switchTab('custom')">⚙️ 自定义前置 / 我的住宅 IP</button>
+        <button class="tab-btn active" id="tabBtnEntry" onclick="switchTab('entry')">🚀 加速线路 (WARP / 公益 / 自建)</button>
+        <button class="tab-btn" id="tabBtnExit" onclick="switchTab('exit')">🏡 住宅落地 (免费家宽 / 私人住宅)</button>
       </div>
+      <span id="tabCountBadge" class="meta"></span>
+    </div>
 
-      <!-- Tab 1: VPN Gate 家宽 -->
-      <div class="tab-panel active" id="tabVpngate">
-        <div class="row" style="justify-content:space-between;">
-          <div class="row">
-            <select id="vgClassFilter" onchange="renderVpngateList()">
-              <option value="residential">仅看家宽节点</option>
-              <option value="all">显示全部 (家宽+机房)</option>
-            </select>
-            <select id="vgCountryFilter" onchange="renderVpngateList()">
-              <option value="ALL">全部国家/地区</option>
-            </select>
-          </div>
-          <div class="row">
-            <button class="btn sm" onclick="testVpngate()">⚡ 测可用并选最快</button>
-            <button class="btn sm primary" onclick="refreshVpngate()">🔄 刷新家宽列表</button>
-          </div>
-        </div>
-        <p class="hint">自动先走「第一跳 WARP / 自建前置」穿透防火墙，再链式连到下方选中的 <strong>VPN Gate 志愿家宽节点</strong>（点击任意一行即可选中出口）。</p>
-        <div class="list" id="vgList"></div>
-      </div>
+    <div id="taskBanner" class="task-banner">
+      <span id="taskBannerText"></span>
+      <button id="taskBannerClose" class="btn xs" onclick="setTaskStatus('', 'hide')">✕</button>
+    </div>
 
-      <!-- Tab 2: 防失联直出 -->
-      <div class="tab-panel" id="tabDirect">
-        <div class="row" style="justify-content:space-between;">
-          <div>
-            <strong>只走第一跳防失联出网（不套第二跳住宅）</strong>
-            <div class="hint">平时刷网页、看视频直接用 WARP + 公益节点备胎，速度最快、延迟最低。</div>
-          </div>
-          <button class="btn sm primary" onclick="useDirectMode()">启用此模式</button>
+    <!-- Tab 1: 加速线路 -->
+    <section class="pane active" id="paneEntry">
+      <div class="toolbar">
+        <div class="seg" id="entryStratSeg">
+          <button data-s="auto_free" onclick="setStrategy('auto_free')">自动免费</button>
+          <button data-s="warp_only" onclick="setStrategy('warp_only')">仅 WARP</button>
+          <button data-s="public_only" onclick="setStrategy('public_only')">仅公益</button>
+          <button data-s="custom_only" onclick="setStrategy('custom_only')">自建前置</button>
+          <button data-s="direct" onclick="setStrategy('direct')">直连</button>
         </div>
-        <div class="item" style="cursor:default;">
-          <div>
-            <div><strong>Cloudflare WARP</strong> <span id="warpMeta" class="meta"></span></div>
-            <label class="hint"><input type="checkbox" id="awgCheck" onchange="updateSetting({use_awg:this.checked})" /> 启用 AmneziaWG 防干扰混淆</label>
-          </div>
-          <button class="btn sm" onclick="scanWarp()">重新扫 WARP</button>
-        </div>
-        <div class="item" style="cursor:default;">
-          <div>
-            <div><strong>公益备胎池</strong> <span id="pubMeta" class="meta"></span></div>
-            <label class="hint"><input type="checkbox" id="pubCheck" onchange="updateSetting({enable_public_backup:this.checked})" /> 纳入自动防失联备胎</label>
-          </div>
-          <button class="btn sm" onclick="refreshPublic()">刷新备胎</button>
+        <div class="row" style="gap:6px;">
+          <label class="switch" id="awgLabel"><input type="checkbox" id="awgCheck" onchange="updateSetting({use_awg:this.checked})" /> AWG混淆</label>
+          <button class="btn primary" id="pullFreeBtn" onclick="pullFreeUnderlays()">🔄 一键拉取并优选</button>
+          <button class="btn" id="testAllEntryBtn" onclick="testAllHop1()">⚡ 全部测速</button>
         </div>
       </div>
 
-      <!-- Tab 3: 自定义前置与我的住宅 IP -->
-      <div class="tab-panel" id="tabCustom">
-        <div>
-          <div class="label">一、我的私人落地住宅 IP（仅存本机，绝不上传）</div>
-          <div class="row" style="margin-bottom:8px;">
-            <input id="exitRemark" placeholder="备注名(如: 美国住宅)" style="width:140px;" />
-            <select id="exitDefaultType" style="width:105px;">
-              <option value="socks5">SOCKS5</option>
-              <option value="http">HTTP</option>
-            </select>
-            <input id="exitRaw" placeholder="粘贴 IP:端口:账号:密码 或 socks5://... / vless://..." style="flex:1;" />
-            <button class="btn sm primary" onclick="addExit()">+ 添加并用此出口</button>
-          </div>
-          <div class="list" id="exitList" style="max-height:130px;"></div>
+      <div class="row" id="underlayImportRow">
+        <input id="underlaySmartInput" placeholder="粘贴自己的节点链接 (vless/vmess/trojan/ss/hy2/socks5) 或订阅 URL" style="flex:1;" />
+        <button class="btn primary" onclick="importUnderlaySmart()">+ 导入</button>
+      </div>
+
+      <div class="node-list" id="entryNodeList"></div>
+    </section>
+
+    <!-- Tab 2: 住宅落地 -->
+    <section class="pane" id="paneExit">
+      <div class="toolbar">
+        <div class="seg">
+          <button id="srcVgBtn" onclick="setExitSource('vpngate')">🏡 免费住宅家宽</button>
+          <button id="srcResBtn" onclick="setExitSource('residential')">🏠 我的私人住宅 IP</button>
         </div>
-
-        <div class="section">
-          <div class="label">二、前置防失联策略 & 我的前置节点 / 订阅（防止公开节点全部不可用）</div>
-          <div class="row">
-            <select id="underlayStrategy" style="flex:1;" onchange="updateSetting({underlay_strategy:this.value})">
-              <option value="auto">自动优选（我的前置 + WARP + 公益备胎）</option>
-              <option value="custom_only">仅用我添加的前置节点 / 订阅</option>
-              <option value="warp_only">仅用内置 WARP</option>
-              <option value="manual">手动指定某一条前置节点</option>
-            </select>
-            <select id="manualUnderlaySelect" style="flex:1; display:none;" onchange="updateSetting({selected_underlay:this.value})"></select>
-          </div>
-
-          <div class="row">
-            <input id="subNameInput" placeholder="订阅备注" style="width:110px;" />
-            <input id="subUrlInput" placeholder="前置订阅链接 https://... (支持 Clash YAML / Base64)" style="flex:1;" />
-            <button class="btn sm primary" onclick="addUnderlaySub()">+ 添加订阅</button>
-            <button class="btn sm" onclick="refreshSubs()">更新</button>
-          </div>
-          <div class="list" id="subList" style="max-height:110px;"></div>
-
-          <textarea id="underlayInput" placeholder="粘贴自己的前置单条节点（支持多行 vless / vmess / trojan / ss / hy2 / socks5）"></textarea>
-          <div class="row" style="justify-content:flex-end;">
-            <button class="btn sm primary" onclick="addUnderlays()">+ 添加前置节点</button>
-          </div>
-          <div class="list" id="underlayList" style="max-height:110px;"></div>
+        <div class="row" id="vgTools" style="gap:6px;">
+          <select id="vgClassFilter" onchange="renderVpngateList()">
+            <option value="residential">仅看家宽</option>
+            <option value="all">全部节点</option>
+          </select>
+          <select id="vgCountryFilter" onchange="renderVpngateList()">
+            <option value="ALL">全部国家</option>
+          </select>
+          <button class="btn primary" onclick="refreshVpngate()">🔄 一键拉取并优选</button>
+          <button class="btn" onclick="testVpngate()">⚡ 测速选最快</button>
         </div>
+        <div class="row" id="resTools" style="display:none; gap:6px;">
+          <button class="btn" onclick="testAllExits()">⚡ 全部测速</button>
+        </div>
+      </div>
 
-        <details>
-          <summary class="hint" style="cursor:pointer;">展开查看 mihomo 内核日志</summary>
-          <pre class="logs" id="logsBox" style="margin-top:8px;">暂无日志</pre>
-        </details>
+      <div class="row" id="resAddBar" style="display:none;">
+        <input id="exitRemark" placeholder="备注名(可选)" style="width:120px;" />
+        <input id="exitRaw" placeholder="粘贴 IP:端口:账号:密码 或 socks5://... / http://..." style="flex:1;" />
+        <button class="btn primary" onclick="addExit()">+ 添加</button>
+      </div>
+
+      <div class="node-list" id="exitNodeList"></div>
+    </section>
+  </main>
+
+  <!-- 高级设置弹窗 -->
+  <div class="modal-mask" id="settingsModal" onclick="if(event.target===this) closeSettingsModal()">
+    <div class="modal">
+      <div class="row" style="justify-content:space-between;">
+        <strong>⚙️ 设置与内核日志</strong>
+        <button class="btn xs" onclick="closeSettingsModal()">关闭</button>
+      </div>
+      <div class="row" style="gap:12px;">
+        <span id="adminBadge" class="meta">权限检测中</span>
+        <button id="elevateBtn" class="btn xs" style="display:none;" onclick="elevateAdmin()">以管理员重启(开TUN)</button>
+      </div>
+      <div class="row" style="gap:14px;">
+        <label class="meta">端口 <input id="mixedPortInput" type="number" min="1024" max="65535" style="width:82px;" onchange="updateSetting({mixed_port:Number(this.value)})" /></label>
+        <label class="switch"><input type="checkbox" id="allowLanCheck" onchange="updateSetting({allow_lan:this.checked})" /> 局域网共享</label>
+        <label class="switch"><input type="checkbox" id="ipv6Check" onchange="updateSetting({ipv6:this.checked})" /> IPv6</label>
+        <label class="switch"><input type="checkbox" id="trayCheck" onchange="updateSetting({minimize_to_tray:this.checked})" /> 关闭最小化到托盘</label>
+      </div>
+      <div>
+        <div class="meta" style="margin-bottom:4px;">自定义分流规则（每行一条 Clash 规则，如 DOMAIN-SUFFIX,openai.com,EXIT）</div>
+        <textarea id="customRulesInput" placeholder="DOMAIN-SUFFIX,openai.com,EXIT&#10;DOMAIN-KEYWORD,internal,DIRECT"></textarea>
+        <div class="row" style="justify-content:flex-end; margin-top:6px;">
+          <button class="btn primary" onclick="saveCustomRules()">保存规则</button>
+        </div>
+      </div>
+      <div class="row" style="justify-content:space-between; border-top:1px solid var(--border); padding-top:8px;">
+        <span class="meta" id="coreFilesDetail">内核检测中...</span>
+        <button class="btn xs" onclick="downloadCore(true)">更新内核</button>
+      </div>
+      <div>
+        <div class="row" style="justify-content:space-between; margin-bottom:6px;">
+          <span class="meta">Mihomo 运行日志</span>
+          <button class="btn xs" onclick="refreshLogs()">刷新日志</button>
+        </div>
+        <pre class="logs" id="logsBox">暂无日志</pre>
       </div>
     </div>
   </div>
@@ -297,6 +389,40 @@
 
   <script>
     let STATE = null;
+    let ACTIVE_TAB = 'entry'; // 'entry' | 'exit'
+    let ENTRY_VIEW = ''; // 当前前置视图 ('auto_free' | 'warp_only' | 'public_only' | 'custom_only' | 'direct')
+    let LAST_DIAG = null;
+    let _diagnosing = false;
+    let SHOW_DEAD_ENTRY = false;
+    let SHOW_DEAD_EXIT = false;
+
+    function getActiveEntryView(state) {
+      if (!state) return ENTRY_VIEW || 'auto_free';
+      const s = state.settings || {};
+      if (ENTRY_VIEW) return ENTRY_VIEW;
+      const st = s.underlay_strategy || 'auto_free';
+      if (st === 'auto') return 'auto_free';
+      if (st === 'manual') {
+        const sel = s.selected_underlay || '';
+        if (sel.startsWith('WARP-')) return 'warp_only';
+        if (sel.startsWith('公益-')) return 'public_only';
+        return 'custom_only';
+      }
+      return st;
+    }
+
+    function setTaskStatus(msg, mode = 'busy') {
+      const box = document.getElementById('taskBanner');
+      const txt = document.getElementById('taskBannerText');
+      const clsBtn = document.getElementById('taskBannerClose');
+      if (mode === 'hide' || !msg) {
+        box.className = 'task-banner';
+        return;
+      }
+      txt.textContent = msg;
+      box.className = 'task-banner show' + (mode === 'ok' ? ' ok' : (mode === 'err' ? ' err' : ''));
+      clsBtn.style.display = mode === 'busy' ? 'none' : 'inline-block';
+    }
 
     function showToast(msg, isErr = false) {
       const el = document.getElementById('toast');
@@ -321,12 +447,239 @@
       return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
     }
 
+    function fmtBytes(bytes) {
+      const n = Number(bytes || 0);
+      if (n < 1024) return n + ' B';
+      if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+      return (n / 1048576).toFixed(1) + ' MB';
+    }
+
+    function metricsTags(delayMs, speedMbps) {
+      let html = '';
+      if (typeof delayMs === 'number') {
+        if (delayMs > 0) {
+          const cls = delayMs < 300 ? 'tag' : (delayMs < 800 ? 'tag warn' : 'tag err');
+          html += `<span class="${cls}">${delayMs}ms</span>`;
+        } else {
+          html += '<span class="tag dc">超时</span>';
+        }
+      }
+      if (typeof speedMbps === 'number' && speedMbps > 0) {
+        html += `<span class="tag spd">${speedMbps} Mbps</span>`;
+      }
+      return html;
+    }
+
     function switchTab(tab) {
-      const map = { vpngate: ['tabBtnVpngate', 'tabVpngate'], direct: ['tabBtnDirect', 'tabDirect'], custom: ['tabBtnCustom', 'tabCustom'] };
-      Object.entries(map).forEach(([k, [bid, pid]]) => {
-        document.getElementById(bid).classList.toggle('active', k === tab);
-        document.getElementById(pid).classList.toggle('active', k === tab);
+      ACTIVE_TAB = tab;
+      document.getElementById('tabBtnEntry').classList.toggle('active', tab === 'entry');
+      document.getElementById('tabBtnExit').classList.toggle('active', tab === 'exit');
+      document.getElementById('paneEntry').classList.toggle('active', tab === 'entry');
+      document.getElementById('paneExit').classList.toggle('active', tab === 'exit');
+      updateTabCountBadge();
+    }
+
+    function updateTabCountBadge() {
+      if (!STATE) return;
+      const el = document.getElementById('tabCountBadge');
+      if (ACTIVE_TAB === 'entry') {
+        const view = getActiveEntryView(STATE);
+        if (view === 'direct') {
+          el.textContent = '直连模式';
+          return;
+        }
+        const warpCnt = (STATE.warp && STATE.warp.endpoint_count) || 0;
+        const pubCnt = STATE.public_backups_count || 0;
+        const userCnt = STATE.custom_underlays.length + STATE.sub_underlays.length;
+        const cnt = view === 'warp_only'
+          ? warpCnt
+          : (view === 'public_only'
+            ? pubCnt
+            : (view === 'custom_only' ? userCnt : (warpCnt + pubCnt)));
+        el.textContent = `当前分类 ${cnt} 个节点`;
+      } else {
+        const cnt = STATE.settings.exit_source === 'vpngate' ? STATE.vpngate_nodes.length : STATE.exits.length;
+        el.textContent = `共 ${cnt} 个落地 IP`;
+      }
+    }
+
+    function openSettingsModal() {
+      document.getElementById('settingsModal').classList.add('open');
+      refreshLogs();
+    }
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').classList.remove('open');
+    }
+
+    function renderEntryNodes(state) {
+      const s = state.settings;
+      const view = getActiveEntryView(state);
+      const list = document.getElementById('entryNodeList');
+      list.innerHTML = '';
+
+      // 按钮栏与导入框跟随当前策略切换
+      document.getElementById('awgLabel').style.display = (view === 'auto_free' || view === 'warp_only') ? '' : 'none';
+      document.getElementById('pullFreeBtn').style.display = (view === 'auto_free' || view === 'warp_only' || view === 'public_only') ? '' : 'none';
+      document.getElementById('testAllEntryBtn').style.display = view === 'direct' ? 'none' : '';
+      document.getElementById('underlayImportRow').style.display = (view === 'auto_free' || view === 'custom_only') ? '' : 'none';
+
+      if (view === 'direct') {
+        list.innerHTML = `
+          <div class="empty-tip">
+            <div>当前为「直连」模式：不使用前置加速节点</div>
+            <div class="meta">若左侧开启了住宅出口，将尝试直接连接住宅出口；未开启则本机直连。</div>
+          </div>`;
+        return;
+      }
+
+      const custom = state.custom_underlays || [];
+      const subs = state.sub_underlays || [];
+      const warpEps = (state.warp && state.warp.endpoints) || [];
+      const pub = state.public_backups || [];
+      const prefix = s.use_awg ? 'WARP-AWG' : 'WARP-WG';
+
+      const includeWarp = (view === 'auto_free' || view === 'warp_only');
+      const includePub = (view === 'auto_free' || view === 'public_only');
+      const includeUser = (view === 'custom_only');
+
+      // 仅在自建前置视图下展示订阅组操作条
+      if (includeUser) {
+        (state.underlay_subs || []).forEach(sub => {
+          const div = document.createElement('div');
+          div.className = 'node-item';
+          div.style.cursor = 'default';
+          div.innerHTML = `<div class="meta">📦 订阅组：${esc(sub.name)}（${sub.count} 节点）</div>
+            <div class="row" style="gap:4px;">
+              <button class="btn xs" onclick="refreshSubs()">更新</button>
+              <button class="btn xs danger" onclick="delSub('${sub.id}')">删订阅</button>
+            </div>`;
+          list.appendChild(div);
+        });
+      }
+
+      // 按当前策略视图汇总节点并按「可用优先 -> 速度降序 -> 延迟升序」排序
+      const rows = [];
+      if (includeUser) {
+        custom.forEach(item => rows.push({
+          title: item.name,
+          meta: `自建 ${item.type} ${item.server}:${item.port}`,
+          delay: item.delay_ms,
+          speed: item.speed_mbps,
+          isSelected: s.underlay_strategy === 'manual' && s.selected_underlay === item.name,
+          onClick: () => selectUnderlay(item.name),
+          testFn: () => testSingleHop1('custom', item.id, ''),
+          delFn: () => delUnderlay(item.id),
+        }));
+        subs.forEach(item => rows.push({
+          title: item.name,
+          meta: `订阅 ${item.type}`,
+          delay: item.delay_ms,
+          speed: item.speed_mbps,
+          isSelected: s.underlay_strategy === 'manual' && s.selected_underlay === item.name,
+          onClick: () => selectUnderlay(item.name),
+          testFn: () => testSingleHop1('sub', '', item.name),
+          delFn: null,
+        }));
+      }
+      if (includePub) {
+        pub.forEach(item => rows.push({
+          title: item.name,
+          meta: `公益 ${item.type}`,
+          delay: item.delay_ms,
+          speed: item.speed_mbps,
+          isSelected: s.underlay_strategy === 'manual' && s.selected_underlay === item.name,
+          onClick: () => selectUnderlay(item.name),
+          testFn: () => testSingleHop1('public', item.id, ''),
+          delFn: null,
+        }));
+      }
+      if (includeWarp) {
+        warpEps.forEach((ep, i) => {
+          const name = `${prefix}-${String(i + 1).padStart(2, '0')}`;
+          rows.push({
+            title: name,
+            meta: `WARP ${ep.ip}:${ep.port}`,
+            delay: ep.delay_ms,
+            speed: ep.speed_mbps,
+            isSelected: s.underlay_strategy === 'manual' && s.selected_underlay === name,
+            onClick: () => selectUnderlay(name),
+            testFn: () => testSingleHop1('warp', '', name),
+            delFn: null,
+          });
+        });
+      }
+
+      const rankTuple = r => {
+        if (typeof r.delay === 'number' && r.delay > 0) {
+          return [0, -(Number(r.speed) || 0), r.delay];
+        }
+        if (r.delay === -1) return [2, 0, 99999];
+        return [1, 0, 99999];
+      };
+      rows.sort((a, b) => {
+        const ta = rankTuple(a), tb = rankTuple(b);
+        return (ta[0] - tb[0]) || (ta[1] - tb[1]) || (ta[2] - tb[2]);
       });
+
+      const hiddenDead = rows.filter(r => r.delay === -1);
+      const visibleRows = SHOW_DEAD_ENTRY ? rows : rows.filter(r => r.delay !== -1);
+
+      visibleRows.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'node-item' + (r.isSelected ? ' selected' : '');
+        div.onclick = r.onClick;
+        div.innerHTML = `
+          <div style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+            <strong>${r.isSelected ? '✅ ' : ''}${esc(r.title)}</strong>${metricsTags(r.delay, r.speed)}
+            <span class="meta"> · ${esc(r.meta)}</span>
+          </div>
+          <div class="row" style="gap:4px; flex-shrink:0;">
+            <button class="btn xs test-btn">测速</button>
+            ${r.delFn ? '<button class="btn xs danger del-btn">删</button>' : ''}
+          </div>`;
+        div.querySelector('.test-btn').onclick = (ev) => { ev.stopPropagation(); r.testFn(); };
+        if (r.delFn) {
+          div.querySelector('.del-btn').onclick = (ev) => { ev.stopPropagation(); r.delFn(); };
+        }
+        list.appendChild(div);
+      });
+
+      if (hiddenDead.length) {
+        const foot = document.createElement('div');
+        foot.className = 'meta';
+        foot.style.cssText = 'text-align:center; padding:4px 0;';
+        foot.innerHTML = SHOW_DEAD_ENTRY
+          ? `<a href="#" style="color:#60a5fa" onclick="SHOW_DEAD_ENTRY=false;renderEntryNodes(STATE);return false;">隐藏 ${hiddenDead.length} 个不可用节点</a>`
+          : `已隐藏 ${hiddenDead.length} 个超时/不可用节点 · <a href="#" style="color:#60a5fa" onclick="SHOW_DEAD_ENTRY=true;renderEntryNodes(STATE);return false;">显示全部</a>`;
+        list.appendChild(foot);
+      }
+
+      if (!rows.length && !(includeUser && (state.underlay_subs || []).length)) {
+        if (view === 'custom_only') {
+          list.innerHTML = `
+            <div class="empty-tip">
+              <div>还没有导入自建或订阅加速节点</div>
+              <div class="meta">请在上方输入框粘贴 vless/vmess/trojan/ss/hy2/tuic/anytls 节点或订阅链接并点击导入。</div>
+            </div>`;
+        } else {
+          const emptyMsg = view === 'warp_only'
+            ? '还没有拉取 WARP 优选节点'
+            : (view === 'public_only' ? '还没有拉取免费公益节点' : '还没有拉取免费加速节点');
+          list.innerHTML = `
+            <div class="empty-tip">
+              <div>${emptyMsg}</div>
+              <button class="btn primary" onclick="pullFreeUnderlays()">🔄 一键拉取并优选</button>
+            </div>`;
+        }
+      } else if (!visibleRows.length && hiddenDead.length) {
+        const tip = document.createElement('div');
+        tip.className = 'empty-tip';
+        tip.innerHTML = view === 'custom_only'
+          ? `<div>当前 ${hiddenDead.length} 个自建/订阅节点均超时不可用，请检查节点配置或导入新节点</div>`
+          : `<div>当前 ${hiddenDead.length} 个节点均超时不可用，建议重新拉取或导入自建节点</div>
+            <button class="btn primary" onclick="pullFreeUnderlays()">🔄 重新拉取并优选</button>`;
+        list.prepend(tip);
+      }
     }
 
     function renderVpngateList() {
@@ -337,7 +690,7 @@
       const prevCountry = cSel.value || 'ALL';
 
       const countries = Array.from(new Set(nodes.map(n => n.country_short))).sort();
-      cSel.innerHTML = '<option value="ALL">全部国家/地区</option>';
+      cSel.innerHTML = '<option value="ALL">全部国家</option>';
       countries.forEach(c => {
         const opt = document.createElement('option');
         opt.value = c; opt.textContent = c;
@@ -345,7 +698,9 @@
         cSel.appendChild(opt);
       });
 
-      const listEl = document.getElementById('vgList');
+      const listEl = document.getElementById('exitNodeList');
+      if (STATE.settings.exit_source !== 'vpngate') return;
+
       const filtered = nodes.filter(n => {
         if (clsFilter === 'residential' && n.line_class !== 'residential') return false;
         if (cSel.value !== 'ALL' && n.country_short !== cSel.value) return false;
@@ -353,194 +708,372 @@
       });
 
       if (!nodes.length) {
-        listEl.innerHTML = '<div class="hint">暂无缓存列表，请点击上方【🔄 刷新家宽列表】（会自动通过 WARP 拉取最新志愿节点）。</div>';
+        listEl.innerHTML = `
+          <div class="empty-tip">
+            <div>还没有拉取免费住宅家宽列表</div>
+            <button class="btn primary" onclick="refreshVpngate()">🔄 一键拉取并优选家宽</button>
+          </div>`;
         return;
       }
-      if (!filtered.length) {
-        listEl.innerHTML = '<div class="hint">当前筛选条件下没有节点，可切换“显示全部”或更换国家。</div>';
+
+      filtered.sort((a, b) => {
+        const ra = (typeof a.delay_ms === 'number' && a.delay_ms > 0) ? 0 : (a.delay_ms === -1 ? 2 : 1);
+        const rb = (typeof b.delay_ms === 'number' && b.delay_ms > 0) ? 0 : (b.delay_ms === -1 ? 2 : 1);
+        if (ra !== rb) return ra - rb;
+        const sa = Number(a.speed_mbps) || 0, sb = Number(b.speed_mbps) || 0;
+        if (sb !== sa) return sb - sa;
+        return (a.delay_ms || 99999) - (b.delay_ms || 99999);
+      });
+
+      const hiddenDead = filtered.filter(n => n.delay_ms === -1);
+      const visible = SHOW_DEAD_EXIT ? filtered : filtered.filter(n => n.delay_ms !== -1);
+
+      if (!visible.length) {
+        listEl.innerHTML = '<div class="empty-tip">当前筛选条件没有可用节点，可点“刷新/拉取”或切换国家。</div>';
         return;
       }
 
       const selId = STATE.settings.selected_vpngate_id;
-      const isVgMode = STATE.settings.exit_mode === 'vpngate';
       listEl.innerHTML = '';
-      filtered.slice(0, 80).forEach(n => {
-        const isSel = isVgMode && n.id === selId;
+      visible.slice(0, 80).forEach(n => {
+        const isSel = n.id === selId;
         const div = document.createElement('div');
-        div.className = 'item' + (isSel ? ' selected' : '');
+        div.className = 'node-item' + (isSel ? ' selected' : '');
         div.onclick = () => selectVpngate(n.id);
         const tagCls = n.line_class === 'residential' ? 'tag' : 'tag dc';
         const tagTxt = n.line_class === 'residential' ? '家宽' : '机房';
-        let delayHtml = '';
-        if (typeof n.delay_ms === 'number') {
-          delayHtml = n.delay_ms > 0
-            ? `<span class="tag">${n.delay_ms}ms</span>`
-            : `<span class="tag dc">超时</span>`;
-        }
         div.innerHTML = `
-          <div>
+          <div style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
             <strong>${isSel ? '✅ ' : ''}${esc(n.name)}</strong>
-            <span class="${tagCls}">${tagTxt}</span>${delayHtml}
+            <span class="${tagCls}">${tagTxt}</span>${metricsTags(n.delay_ms, null)}
             <span class="meta"> · ${esc(n.isp || '')}</span>
           </div>
-          <div class="meta">${esc(n.proto).toUpperCase()} · ${n.speed_mbps} Mbps</div>`;
+          <span class="meta" style="flex-shrink:0;">${esc(n.proto).toUpperCase()} · ${n.speed_mbps}M</span>`;
         listEl.appendChild(div);
       });
+
+      if (hiddenDead.length) {
+        const foot = document.createElement('div');
+        foot.className = 'meta';
+        foot.style.cssText = 'text-align:center; padding:4px 0;';
+        foot.innerHTML = SHOW_DEAD_EXIT
+          ? `<a href="#" style="color:#60a5fa" onclick="SHOW_DEAD_EXIT=false;renderVpngateList();return false;">隐藏 ${hiddenDead.length} 个不可用节点</a>`
+          : `已隐藏 ${hiddenDead.length} 个超时/不可用节点 · <a href="#" style="color:#60a5fa" onclick="SHOW_DEAD_EXIT=true;renderVpngateList();return false;">显示全部</a>`;
+        listEl.appendChild(foot);
+      }
+    }
+
+    function renderResidentialExits(state) {
+      if (state.settings.exit_source !== 'residential') return;
+      const listEl = document.getElementById('exitNodeList');
+      listEl.innerHTML = '';
+      if (!state.exits.length) {
+        listEl.innerHTML = '<div class="empty-tip">暂无私人住宅 IP，请在上方输入框粘贴添加。</div>';
+        return;
+      }
+      state.exits.forEach(item => {
+        const isSel = item.id === state.settings.selected_exit_id;
+        const div = document.createElement('div');
+        div.className = 'node-item' + (isSel ? ' selected' : '');
+        div.onclick = () => selectResidential(item.id);
+        div.innerHTML = `
+          <div><strong>${isSel ? '✅ ' : ''}${esc(item.name)}</strong>${metricsTags(item.delay_ms, item.speed_mbps)} <span class="meta">${esc(item.type)} ${esc(item.server)}:${esc(item.port)}</span></div>
+          <div class="row" style="gap:4px;">
+            <button class="btn xs" onclick="event.stopPropagation(); testSingleExit('${item.id}')">测速</button>
+            <button class="btn xs danger" onclick="event.stopPropagation(); delExit('${item.id}')">删</button>
+          </div>`;
+        listEl.appendChild(div);
+      });
+    }
+
+    function renderDiagCard(state) {
+      const card = document.getElementById('diagCard');
+      const txt = document.getElementById('diagText');
+      const acts = document.getElementById('diagActions');
+      const rt = state.runtime || {};
+      const s = state.settings || {};
+      acts.innerHTML = '';
+
+      if (!rt.running) {
+        card.className = 'diag-card';
+        txt.textContent = '选择加速线路与住宅出口后，点击上方圆形按钮连接';
+        return;
+      }
+
+      if (_diagnosing) {
+        card.className = 'diag-card';
+        txt.textContent = '⏳ 正在检测加速线路与出口 IP...';
+        return;
+      }
+
+      const d = LAST_DIAG;
+      if (!d) {
+        card.className = 'diag-card ok';
+        txt.textContent = '✅ 已连接，可点击检测出口状态';
+        const b = document.createElement('button');
+        b.className = 'btn xs'; b.textContent = '检测出口'; b.onclick = runDiagnose;
+        acts.appendChild(b);
+        return;
+      }
+
+      if (d.fault_hop === 'underlay') {
+        card.className = 'diag-card err';
+        txt.innerHTML = '⚠️ <strong>加速线路不通</strong>，建议一键切换：';
+        [
+          ['拉取/换 WARP', () => pullFreeUnderlays()],
+          ['切公益节点', () => setStrategy('public_only')],
+          ['选我的节点', () => { switchTab('entry'); setStrategy('custom_only'); }],
+        ].forEach(([label, fn]) => {
+          const b = document.createElement('button');
+          b.className = 'btn xs'; b.textContent = label; b.onclick = fn;
+          acts.appendChild(b);
+        });
+        return;
+      }
+
+      if (d.fault_hop === 'exit') {
+        card.className = 'diag-card err';
+        txt.innerHTML = `⚠️ 加速线路正常 (${d.underlay_ms}ms)，但<strong>住宅出口不可达</strong>：`;
+        [
+          ['自动换可用家宽', () => testVpngate()],
+          ['换私人住宅', () => { switchTab('exit'); setExitSource('residential'); }],
+          ['关闭住宅直出', () => toggleExitHop(false)],
+        ].forEach(([label, fn]) => {
+          const b = document.createElement('button');
+          b.className = 'btn xs'; b.textContent = label; b.onclick = fn;
+          acts.appendChild(b);
+        });
+        return;
+      }
+
+      card.className = 'diag-card ok';
+      const p = d.probe || {};
+      const delayStr = s.use_exit_hop ? `${d.underlay_ms}ms → ${d.exit_ms}ms` : `${d.underlay_ms}ms`;
+      const ipStr = p.ok ? `${esc(p.ip)} · ${esc(p.country)} ${esc(p.city)}` : '出口 IP 未知';
+      txt.innerHTML = `✅ <strong>${ipStr}</strong><br><span class="meta">延迟 ${delayStr} · ${esc(p.isp || '')}</span>`;
+      const b = document.createElement('button');
+      b.className = 'btn xs'; b.textContent = '复测'; b.onclick = runDiagnose;
+      acts.appendChild(b);
     }
 
     function render(state) {
       STATE = state;
       const s = state.settings;
       const rt = state.runtime;
+      const cs = state.core_status || {};
 
-      const ab = document.getElementById('adminBadge');
-      const eb = document.getElementById('elevateBtn');
-      ab.textContent = state.is_admin ? '管理员(TUN可用)' : '普通权限';
-      ab.className = 'pill ' + (state.is_admin ? 'ok' : 'warn');
-      eb.style.display = state.is_admin ? 'none' : 'inline-block';
-
-      document.getElementById('pmSystem').classList.toggle('active', s.proxy_mode === 'system');
-      document.getElementById('pmTun').classList.toggle('active', s.proxy_mode === 'tun');
-      document.getElementById('rmBypass').classList.toggle('active', s.route_mode === 'bypass_cn');
-      document.getElementById('rmGlobal').classList.toggle('active', s.route_mode === 'global');
-
-      const cbtn = document.getElementById('connectBtn');
+      // Power button
+      const pBtn = document.getElementById('powerBtn');
+      const pLbl = document.getElementById('powerLabel');
+      const pSub = document.getElementById('powerSub');
       if (rt.running) {
-        cbtn.textContent = '断开连接';
-        cbtn.classList.add('connected');
-        document.getElementById('stRunning').textContent = `已连接 (${rt.mode === 'tun' ? 'TUN网卡' : '系统代理 :17890'})`;
-        document.getElementById('stRunning').style.color = '#34d399';
+        pBtn.classList.add('connected');
+        pLbl.textContent = '已连接';
+        pSub.textContent = rt.mode === 'tun' ? 'TUN 全局网卡保护中 (点击断开)' : `系统代理 :${rt.mixed_port} (点击断开)`;
+        document.getElementById('trafficLine').style.display = 'flex';
+        document.getElementById('sumTraffic').textContent = `↑${fmtBytes(rt.up_bps)}/s  ↓${fmtBytes(rt.down_bps)}/s`;
       } else {
-        cbtn.textContent = '一键连接';
-        cbtn.classList.remove('connected');
-        document.getElementById('stRunning').textContent = '未连接';
-        document.getElementById('stRunning').style.color = '#94a3b8';
+        pBtn.classList.remove('connected');
+        pLbl.textContent = '一键连接';
+        pSub.textContent = '未连接';
+        document.getElementById('trafficLine').style.display = 'none';
       }
 
-      document.getElementById('stUnderlay').textContent = rt.current_underlay || '-';
-      const exitLabel = s.exit_mode === 'direct_underlay' ? '仅防失联直出' : (s.exit_mode === 'vpngate' ? 'VPN Gate 家宽链式' : '私人住宅 IP 链式');
-      document.getElementById('stExit').textContent = rt.current_exit || exitLabel;
+      // Summary card
+      const stratLabels = {
+        auto_free: '自动免费 (WARP+公益)',
+        warp_only: '仅 WARP',
+        public_only: '仅公益节点',
+        custom_only: '自建前置',
+        manual: s.selected_underlay || '指定节点',
+        auto: '全自动混合',
+        direct: '直连 (无前置)',
+      };
+      document.getElementById('sumEntry').textContent = (rt.running && rt.current_underlay)
+        ? rt.current_underlay
+        : (stratLabels[s.underlay_strategy] || s.underlay_strategy);
 
-      document.getElementById('underlayStrategy').value = s.underlay_strategy;
+      document.getElementById('useExitCheck').checked = !!s.use_exit_hop;
+      document.getElementById('exitHintLine').style.display = s.use_exit_hop ? 'none' : 'block';
+      if (!s.use_exit_hop) {
+        document.getElementById('sumExit').textContent = '未启用';
+      } else if (s.exit_source === 'vpngate') {
+        const vg = (state.vpngate_nodes || []).find(n => n.id === s.selected_vpngate_id);
+        document.getElementById('sumExit').textContent = (rt.running && rt.current_exit)
+          ? rt.current_exit
+          : (vg ? vg.name : '免费住宅家宽');
+      } else {
+        const ex = (state.exits || []).find(x => x.id === s.selected_exit_id) || (state.exits || [])[0];
+        document.getElementById('sumExit').textContent = ex ? ex.name : '私人住宅 (未添加)';
+      }
+
+      // Mode chips & core & smart auto
+      document.getElementById('smartAutoCheck').checked = !!s.smart_auto_select;
+      const sm = state.smart_status || {};
+      const smLine = document.getElementById('smartMetaLine');
+      if (sm.running) {
+        smLine.style.display = 'block';
+        smLine.textContent = '⏳ 后台正在智能测速优选...';
+      } else if (s.smart_auto_select && sm.last_summary) {
+        smLine.style.display = 'block';
+        smLine.textContent = `上次优选 ${sm.last_run_at}: ${sm.last_summary}`;
+      } else {
+        smLine.style.display = 'none';
+      }
+
+      document.getElementById('proxyModeChip').textContent = (s.proxy_mode === 'tun' ? 'TUN 网卡' : '系统代理') + ' ⇄';
+      document.getElementById('routeModeChip').textContent = (s.route_mode === 'global' ? '全局代理' : '大陆分流') + ' ⇄';
+      document.getElementById('downloadCoreBtn').style.display = (cs.has_exe && cs.has_geo) ? 'none' : 'block';
+
+      // Right Entry pane
+      const activeH1 = getActiveEntryView(state);
+      document.querySelectorAll('#entryStratSeg button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.s === activeH1);
+      });
       document.getElementById('awgCheck').checked = !!s.use_awg;
-      document.getElementById('pubCheck').checked = !!s.enable_public_backup;
+      renderEntryNodes(state);
 
-      const mSel = document.getElementById('manualUnderlaySelect');
-      mSel.style.display = s.underlay_strategy === 'manual' ? 'inline-block' : 'none';
-      mSel.innerHTML = '';
-      (state.underlay_names || []).forEach(n => {
-        const opt = document.createElement('option');
-        opt.value = n; opt.textContent = n;
-        if (n === s.selected_underlay) opt.selected = true;
-        mSel.appendChild(opt);
-      });
-
-      document.getElementById('warpMeta').textContent = state.warp.has_account ? `(${state.warp.endpoint_count} 端点)` : '(首次自动注册)';
-      document.getElementById('pubMeta').textContent = `(${state.public_backups_count} 个)`;
-
+      // Right Exit pane
+      const isVg = s.exit_source !== 'residential';
+      document.getElementById('srcVgBtn').classList.toggle('active', isVg);
+      document.getElementById('srcResBtn').classList.toggle('active', !isVg);
+      document.getElementById('vgTools').style.display = isVg ? 'flex' : 'none';
+      document.getElementById('resTools').style.display = isVg ? 'none' : 'flex';
+      document.getElementById('resAddBar').style.display = isVg ? 'none' : 'flex';
       renderVpngateList();
+      renderResidentialExits(state);
+      updateTabCountBadge();
 
-      const ul = document.getElementById('underlayList');
-      ul.innerHTML = state.custom_underlays.length ? '' : '<div class="hint">暂无自定义前置节点</div>';
-      state.custom_underlays.forEach(item => {
-        const div = document.createElement('div');
-        div.className = 'item';
-        div.innerHTML = `<div><strong>${esc(item.name)}</strong> <span class="meta">${esc(item.type)} · ${esc(item.server)}:${esc(item.port)}</span></div>
-          <button class="btn sm danger" onclick="delUnderlay('${item.id}')">删除</button>`;
-        ul.appendChild(div);
-      });
-
-      const sl = document.getElementById('subList');
-      sl.innerHTML = state.underlay_subs.length ? '' : '<div class="hint">暂无自定义前置订阅</div>';
-      state.underlay_subs.forEach(sub => {
-        const div = document.createElement('div');
-        div.className = 'item';
-        div.innerHTML = `<div><strong>${esc(sub.name)}</strong> <span class="meta">${sub.count} 节点 · ${esc(sub.updated_at)}</span></div>
-          <button class="btn sm danger" onclick="delSub('${sub.id}')">删除</button>`;
-        sl.appendChild(div);
-      });
-
-      const el = document.getElementById('exitList');
-      el.innerHTML = state.exits.length ? '' : '<div class="hint">暂无私人住宅 IP</div>';
-      state.exits.forEach(item => {
-        const isSel = s.exit_mode === 'residential' && item.id === s.selected_exit_id;
-        const div = document.createElement('div');
-        div.className = 'item' + (isSel ? ' selected' : '');
-        div.onclick = (ev) => {
-          if (ev.target.tagName === 'BUTTON') return;
-          updateSetting({ selected_exit_id: item.id, exit_mode: 'residential' });
-        };
-        div.innerHTML = `<div><strong>${isSel ? '✅ ' : ''}${esc(item.name)}</strong> <span class="meta">${esc(item.type)} · ${esc(item.server)}:${esc(item.port)}</span></div>
-          <button class="btn sm danger" onclick="delExit('${item.id}')">删除</button>`;
-        el.appendChild(div);
-      });
-
+      // Settings modal
+      document.getElementById('adminBadge').textContent = state.is_admin ? '当前权限：管理员 (TUN 可用)' : '当前权限：普通用户';
+      document.getElementById('elevateBtn').style.display = state.is_admin ? 'none' : 'inline-block';
+      document.getElementById('allowLanCheck').checked = !!s.allow_lan;
+      document.getElementById('ipv6Check').checked = !!s.ipv6;
+      document.getElementById('trayCheck').checked = !!s.minimize_to_tray;
+      if (document.activeElement !== document.getElementById('mixedPortInput')) {
+        document.getElementById('mixedPortInput').value = s.mixed_port || 17890;
+      }
+      if (document.activeElement !== document.getElementById('customRulesInput')) {
+        document.getElementById('customRulesInput').value = s.custom_rules || '';
+      }
+      document.getElementById('coreFilesDetail').textContent = Object.entries(cs.files || {})
+        .map(([k, v]) => `${k}: ${v.exists ? v.size_mb + 'MB' : '缺失'}`).join(' | ');
       document.getElementById('logsBox').textContent = state.logs || '暂无日志';
+
+      renderDiagCard(state);
     }
 
     async function refreshState() {
       try { render(await api('/api/state')); } catch (e) { showToast(e.message, true); }
     }
 
+    async function refreshLogs() {
+      try {
+        const r = await api('/api/logs?lines=100');
+        document.getElementById('logsBox').textContent = r.logs || '暂无日志';
+      } catch (e) { showToast(e.message, true); }
+    }
+
     async function updateSetting(patch) {
       try {
         await api('/api/settings', patch);
         await refreshState();
-        showToast('已切换并应用');
+        if (STATE && STATE.runtime.running) runDiagnose();
       } catch (e) {
         showToast(e.message, true);
         await refreshState();
       }
     }
 
-    async function selectVpngate(id) {
-      await updateSetting({ exit_mode: 'vpngate', selected_vpngate_id: id });
-    }
-
-    async function useDirectMode() {
-      await updateSetting({ exit_mode: 'direct_underlay' });
-    }
-
-    async function refreshVpngate() {
-      showToast('正在通过前置通道拉取并识别 VPN Gate 家宽节点...');
-      try {
-        const r = await api('/api/vpngate/refresh', {});
-        showToast(`刷新成功！共 ${r.count} 个节点，其中 ${r.residential_count} 个家宽`);
-        await refreshState();
-      } catch (e) { showToast(e.message, true); }
-    }
-
-    async function testVpngate() {
-      const country = document.getElementById('vgCountryFilter').value || 'ALL';
-      showToast('正在并发测速前 12 个家宽节点（约需 6-10 秒）...');
-      try {
-        const r = await api('/api/vpngate/test', { country });
-        if (r.alive > 0) {
-          showToast(`测出 ${r.alive}/${r.tested} 个可用，已选中最快: ${r.best_name} (${r.best_ms}ms)`);
-        } else {
-          showToast(`本轮 ${r.tested} 个节点均超时，建议刷新列表或切换国家重试`, true);
+    async function cycleProxyMode() {
+      if (!STATE) return;
+      const next = STATE.settings.proxy_mode === 'tun' ? 'system' : 'tun';
+      if (next === 'tun' && !STATE.is_admin) {
+        if (confirm('开启 TUN 全局网卡需要管理员权限，是否以管理员身份重启？')) {
+          await elevateAdmin();
         }
+        return;
+      }
+      await updateSetting({ proxy_mode: next });
+    }
+
+    async function cycleRouteMode() {
+      if (!STATE) return;
+      await updateSetting({ route_mode: STATE.settings.route_mode === 'global' ? 'bypass_cn' : 'global' });
+    }
+
+    async function setStrategy(strategy) {
+      ENTRY_VIEW = strategy;
+      await updateSetting({ underlay_strategy: strategy });
+    }
+
+    async function selectUnderlay(name) {
+      try {
+        if (!ENTRY_VIEW) {
+          if (name.startsWith('WARP-')) ENTRY_VIEW = 'warp_only';
+          else if (name.startsWith('公益-')) ENTRY_VIEW = 'public_only';
+          else ENTRY_VIEW = 'custom_only';
+        }
+        await api('/api/underlay/select', { name });
+        showToast(`已选用加速节点：${name}`);
         await refreshState();
+        if (STATE && STATE.runtime.running) runDiagnose();
       } catch (e) { showToast(e.message, true); }
+    }
+
+    async function toggleExitHop(enabled) {
+      await updateSetting({ use_exit_hop: enabled });
+    }
+
+    async function setExitSource(src) {
+      await updateSetting({ exit_source: src });
+    }
+
+    async function selectVpngate(id) {
+      await updateSetting({ use_exit_hop: true, exit_source: 'vpngate', selected_vpngate_id: id });
+    }
+
+    async function selectResidential(id) {
+      await updateSetting({ use_exit_hop: true, exit_source: 'residential', selected_exit_id: id });
+    }
+
+    async function toggleSmartAuto(enabled) {
+      try {
+        await api('/api/settings', { smart_auto_select: enabled, auto_apply: false });
+        showToast(enabled ? '已开启智能选择：连接时及每小时自动测速优选' : '已关闭智能自动选择，将保持手动选中的节点');
+        await refreshState();
+      } catch (e) {
+        showToast(e.message, true);
+        await refreshState();
+      }
     }
 
     async function toggleConnect() {
-      const btn = document.getElementById('connectBtn');
+      const btn = document.getElementById('powerBtn');
+      const lbl = document.getElementById('powerLabel');
+      const smartPick = !!(STATE && STATE.settings && STATE.settings.smart_auto_select);
       btn.disabled = true;
       try {
         if (STATE && STATE.runtime.running) {
           await api('/api/disconnect', {});
-          showToast('已断开并恢复系统代理');
-          document.getElementById('stProbe').textContent = '未连接';
+          LAST_DIAG = null;
+          showToast('已断开连接');
         } else {
-          btn.textContent = '连接中...';
-          await api('/api/connect', {});
-          showToast('连接成功！正在探测出口 IP...');
+          lbl.textContent = smartPick ? '智能优选...' : '连接中...';
+          if (smartPick) {
+            setTaskStatus('⏳ 已勾选「智能选择节点」，正在更新节点并测速挑选最优线路后连接...', 'busy');
+          }
+          await api('/api/connect', { smart_pick: smartPick });
+          if (smartPick) {
+            setTaskStatus('✅ 智能优选并连接成功', 'ok');
+          }
+          showToast('连接成功，正在检测出口...');
           await refreshState();
-          probeExit();
+          await runDiagnose();
           return;
         }
       } catch (e) {
+        if (smartPick) setTaskStatus(`❌ 连接失败：${e.message}`, 'err');
         showToast(e.message, true);
       } finally {
         btn.disabled = false;
@@ -548,87 +1081,200 @@
       }
     }
 
-    async function probeExit() {
-      document.getElementById('stProbe').textContent = '探测中...';
+    async function runDiagnose() {
+      if (!STATE || !STATE.runtime.running) return;
+      _diagnosing = true;
+      renderDiagCard(STATE);
       try {
-        const r = await api('/api/probe', {});
-        document.getElementById('stProbe').textContent = `${r.ip} (${r.country} ${r.city}) · ${r.isp} · ${r.latency_ms}ms`;
+        LAST_DIAG = await api('/api/diagnose', {});
       } catch (e) {
-        document.getElementById('stProbe').textContent = '探测失败';
+        LAST_DIAG = null;
         showToast(e.message, true);
+      } finally {
+        _diagnosing = false;
+        if (STATE) renderDiagCard(STATE);
       }
     }
 
-    async function scanWarp() {
-      showToast('正在扫描 WARP 端点...');
-      try { const r = await api('/api/warp/scan', {}); showToast(`已更新 ${r.count} 个 WARP 端点`); await refreshState(); }
-      catch (e) { showToast(e.message, true); }
-    }
-
-    async function refreshPublic() {
-      showToast('正在刷新公益备胎...');
-      try { const r = await api('/api/public/refresh', {}); showToast(`已加载 ${r.count} 个公益节点`); await refreshState(); }
-      catch (e) { showToast(e.message, true); }
-    }
-
-    async function addUnderlays() {
-      const text = document.getElementById('underlayInput').value;
-      if (!text.trim()) return;
+    async function pullFreeUnderlays() {
+      setTaskStatus('⏳ 第 1/2 步：正在拉取免费加速节点（WARP + 公益）...', 'busy');
       try {
-        const r = await api('/api/underlay/add', { text });
-        document.getElementById('underlayInput').value = '';
-        showToast(`已添加 ${r.added} 条前置节点`);
+        const pullRes = await api('/api/underlay/pull', { auto_test: false });
         await refreshState();
+        setTaskStatus(`⏳ 第 2/2 步：已显示 ${pullRes.warp_count} WARP + ${pullRes.public_count} 公益节点，正在并发测速与优选...`, 'busy');
+
+        const testRes = await api('/api/underlay/test_all', {
+          kind: getActiveEntryView(STATE) === 'warp_only'
+            ? 'warp'
+            : (getActiveEntryView(STATE) === 'public_only' ? 'public' : 'free'),
+          test_speed: true,
+        });
+        await refreshState();
+        const bestInfo = testRes.best_name
+          ? `，最快：${testRes.best_name} (${testRes.best_ms}ms${testRes.best_mbps ? ' · ' + testRes.best_mbps + ' Mbps' : ''})`
+          : '';
+        setTaskStatus(`✅ 拉取并优选完成：可用 ${testRes.alive}/${testRes.tested} 个节点（已按速度排序并隐藏不可用节点）${bestInfo}`, 'ok');
+      } catch (e) {
+        setTaskStatus(`❌ 拉取或优选失败：${e.message}`, 'err');
+      }
+    }
+
+    async function testAllHop1() {
+      const view = getActiveEntryView(STATE);
+      if (view === 'direct') {
+        showToast('当前为直连模式，无需测速前置节点');
+        return;
+      }
+      const kindMap = { warp_only: 'warp', public_only: 'public', custom_only: 'user', auto_free: 'free' };
+      const kind = kindMap[view] || 'all';
+      setTaskStatus('⏳ 正在并发测当前分类加速节点的延迟与下载速度（请稍候）...', 'busy');
+      try {
+        const r = await api('/api/underlay/test_all', { kind, test_speed: true });
+        await refreshState();
+        const bestInfo = r.best_name
+          ? `，最快：${r.best_name} (${r.best_ms}ms${r.best_mbps ? ' · ' + r.best_mbps + ' Mbps' : ''})`
+          : '';
+        setTaskStatus(`✅ 测速完成：可用 ${r.alive}/${r.tested} 个节点${bestInfo}`, 'ok');
+      } catch (e) {
+        setTaskStatus(`❌ 测速失败：${e.message}`, 'err');
+      }
+    }
+
+    async function testSingleHop1(kind, id, name) {
+      showToast('正在测该节点延迟与速度...');
+      try {
+        const r = await api('/api/underlay/test', { kind, id, name, test_speed: true });
+        showToast(r.alive > 0 ? '测速完成' : '节点超时不可用', r.alive === 0);
+        await refreshState();
+      } catch (e) { showToast(e.message, true); }
+    }
+
+    async function importUnderlaySmart() {
+      const raw = document.getElementById('underlaySmartInput').value.trim();
+      if (!raw) return;
+      const isSingleHttp = /^https?:\/\/\S+$/i.test(raw) && !raw.includes('@') && !/^https?:\/\/[^/]+:\d+\/?$/i.test(raw);
+      try {
+        if (isSingleHttp) {
+          showToast('正在拉取订阅...');
+          const r = await api('/api/underlay/sub/add', { name: '', url: raw });
+          document.getElementById('underlaySmartInput').value = '';
+          showToast(`已导入订阅 ${r.count} 个节点`);
+        } else {
+          const r = await api('/api/underlay/add', { text: raw });
+          document.getElementById('underlaySmartInput').value = '';
+          showToast(`已添加 ${r.added} 条节点`);
+        }
+        ENTRY_VIEW = 'custom_only';
+        await updateSetting({ underlay_strategy: 'custom_only' });
       } catch (e) { showToast(e.message, true); }
     }
 
     async function delUnderlay(id) { await api('/api/underlay/delete', { id }); await refreshState(); }
+    async function refreshSubs() {
+      showToast('正在更新订阅...');
+      try { await api('/api/underlay/sub/refresh', {}); await refreshState(); showToast('订阅已更新'); }
+      catch (e) { showToast(e.message, true); }
+    }
+    async function delSub(id) { await api('/api/underlay/sub/delete', { id }); await refreshState(); }
 
-    async function addUnderlaySub() {
-      const name = document.getElementById('subNameInput').value;
-      const url = document.getElementById('subUrlInput').value;
-      if (!url.trim()) return;
-      showToast('正在拉取订阅...');
+    async function refreshVpngate() {
+      const running = STATE && STATE.runtime && STATE.runtime.running;
+      setTaskStatus(
+        running
+          ? '⏳ 第 1/2 步：正在通过当前加速线路拉取免费住宅家宽列表...'
+          : '⏳ 第 1/2 步：拉取免费住宅家宽需先经过加速节点，正在后台自动找免费节点连接拉取...',
+        'busy'
+      );
       try {
-        const r = await api('/api/underlay/sub/add', { name, url });
-        document.getElementById('subNameInput').value = '';
-        document.getElementById('subUrlInput').value = '';
-        showToast(`订阅解析成功：${r.count} 个节点`);
+        const r = await api('/api/vpngate/refresh', { auto_test: false });
+        await refreshState();
+        setTaskStatus(`⏳ 第 2/2 步：已显示 ${r.count} 个节点（${r.residential_count} 个家宽），正在并发测速并优选...`, 'busy');
+
+        const country = document.getElementById('vgCountryFilter').value || 'ALL';
+        const tr = await api('/api/vpngate/test', { country, max_test: 12 });
+        await refreshState();
+        if (tr.alive > 0) {
+          setTaskStatus(`✅ 家宽拉取并优选完成：可用 ${tr.alive}/${tr.tested}，已选最快 ${tr.best_name} (${tr.best_ms}ms)`, 'ok');
+        } else {
+          setTaskStatus(`⚠️ 已拉取 ${r.count} 个节点，但本轮测试均超时，可换国家或点「测速选最快」重试`, 'err');
+        }
+      } catch (e) {
+        setTaskStatus(`❌ 拉取免费住宅家宽失败：${e.message}`, 'err');
+      }
+    }
+
+    async function testVpngate() {
+      const country = document.getElementById('vgCountryFilter').value || 'ALL';
+      setTaskStatus('⏳ 正在并发测速免费住宅家宽节点（请稍候）...', 'busy');
+      try {
+        const r = await api('/api/vpngate/test', { country, max_test: 12 });
+        await refreshState();
+        if (STATE && STATE.runtime.running) await runDiagnose();
+        if (r.alive > 0) {
+          setTaskStatus(`✅ 家宽测速完成：可用 ${r.alive}/${r.tested}，已选最快 ${r.best_name} (${r.best_ms}ms)`, 'ok');
+        } else {
+          setTaskStatus('⚠️ 本轮测试节点均超时，请刷新列表或切换国家重试', 'err');
+        }
+      } catch (e) {
+        setTaskStatus(`❌ 家宽测速失败：${e.message}`, 'err');
+      }
+    }
+
+    async function addExit() {
+      const raw = document.getElementById('exitRaw').value.trim();
+      const remark = document.getElementById('exitRemark').value.trim();
+      if (!raw) return;
+      try {
+        await api('/api/exit/add', { raw, remark, default_type: 'socks5' });
+        document.getElementById('exitRaw').value = '';
+        document.getElementById('exitRemark').value = '';
+        showToast('住宅 IP 已添加');
         await refreshState();
       } catch (e) { showToast(e.message, true); }
     }
 
-    async function refreshSubs() {
-      showToast('正在更新全部前置订阅...');
-      try { const r = await api('/api/underlay/sub/refresh', {}); showToast(`已更新 ${r.updated}/${r.total} 个订阅`); await refreshState(); }
-      catch (e) { showToast(e.message, true); }
+    async function testSingleExit(id) {
+      showToast('正在测速该住宅 IP...');
+      try {
+        const r = await api('/api/exit/test', { id });
+        const ms = (r.delays || {})[id];
+        showToast(ms ? `延迟: ${ms}ms` : '超时不可达', !ms);
+        await refreshState();
+      } catch (e) { showToast(e.message, true); }
     }
 
-    async function delSub(id) { await api('/api/underlay/sub/delete', { id }); await refreshState(); }
-
-    async function addExit() {
-      const raw = document.getElementById('exitRaw').value;
-      const remark = document.getElementById('exitRemark').value;
-      const default_type = document.getElementById('exitDefaultType').value;
-      if (!raw.trim()) return;
+    async function testAllExits() {
+      showToast('正在测速全部私人住宅 IP...');
       try {
-        await api('/api/exit/add', { raw, remark, default_type });
-        document.getElementById('exitRaw').value = '';
-        document.getElementById('exitRemark').value = '';
-        showToast('私人住宅 IP 已添加并切换选中');
+        const r = await api('/api/exit/test', {});
+        showToast(`测速完成：${r.alive}/${r.tested} 可用`);
         await refreshState();
       } catch (e) { showToast(e.message, true); }
     }
 
     async function delExit(id) { await api('/api/exit/delete', { id }); await refreshState(); }
 
+    async function downloadCore(force = false) {
+      showToast('正在下载内核与规则库...');
+      try {
+        await api('/api/core/download', { force });
+        showToast('内核已就绪');
+        await refreshState();
+      } catch (e) { showToast(e.message, true); }
+    }
+
+    async function saveCustomRules() {
+      await updateSetting({ custom_rules: document.getElementById('customRulesInput').value });
+      showToast('规则已保存');
+    }
+
     async function elevateAdmin() {
-      try { await api('/api/elevate', {}); showToast('正在以管理员身份重启，请允许弹窗...'); }
+      try { await api('/api/elevate', {}); showToast('正在以管理员身份重启...'); }
       catch (e) { showToast(e.message, true); }
     }
 
     refreshState();
-    setInterval(() => { if (STATE && STATE.runtime && STATE.runtime.running) refreshState(); }, 4000);
+    setInterval(() => { if (STATE && STATE.runtime && STATE.runtime.running) refreshState(); }, 3500);
   </script>
 </body>
 </html>

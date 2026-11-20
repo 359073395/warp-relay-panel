@@ -47,7 +47,7 @@ def _notify_wininet() -> None:
         pass
 
 
-def get_active_proxy_url() -> str | None:
+def get_active_proxy_url(self_port: int = 17890) -> str | None:
     """若当前系统代理已开启且非本面板端口，返回 http://host:port。"""
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _INTERNET_SETTINGS_PATH, 0, winreg.KEY_READ) as k:
@@ -56,7 +56,7 @@ def get_active_proxy_url() -> str | None:
                 return None
             srv, _ = winreg.QueryValueEx(k, "ProxyServer")
             srv = str(srv).strip()
-            if srv and "17890" not in srv:
+            if srv and f":{self_port}" not in srv:
                 return f"http://{srv}" if "://" not in srv else srv
     except Exception:
         return None
@@ -106,14 +106,14 @@ def set_system_proxy(port: int, snapshot_file: Path) -> None:
     _notify_wininet()
 
 
-def restore_system_proxy(snapshot_file: Path) -> None:
+def restore_system_proxy(snapshot_file: Path, self_port: int = 17890) -> None:
     if not snapshot_file.exists():
         # 若没有快照但当前指向我们自己的端口，仍主动清零
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _INTERNET_SETTINGS_PATH, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as k:
                 try:
                     srv, _ = winreg.QueryValueEx(k, "ProxyServer")
-                    if str(srv).startswith("127.0.0.1:17890"):
+                    if str(srv).startswith(f"127.0.0.1:{self_port}"):
                         winreg.SetValueEx(k, "ProxyEnable", 0, winreg.REG_DWORD, 0)
                 except FileNotFoundError:
                     pass

@@ -167,17 +167,42 @@ def ensure_warp_account(account_file: Path, proxy_url: str | None = None) -> dic
 
 
 def sample_warp_endpoints(count: int = 12) -> list[tuple[str, int]]:
-    """从 Cloudflare 多段 WARP IPv4 池中抽样生成候选端点列表。"""
+    """从 Cloudflare 多段 WARP IPv4 池中抽样生成不重复的候选端点列表。"""
     candidates: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
     cidrs = list(WARP_IPV4_CIDRS)
     random.shuffle(cidrs)
-    for idx in range(count):
+    attempts = 0
+    while len(candidates) < count and attempts < count * 5:
+        idx = attempts
+        attempts += 1
         net = ipaddress.ip_network(cidrs[idx % len(cidrs)])
         host_offset = random.randint(1, net.num_addresses - 2)
         ip_str = str(net.network_address + host_offset)
         port = WARP_PORTS[idx % len(WARP_PORTS)]
-        candidates.append((ip_str, port))
+        pair = (ip_str, port)
+        if pair not in seen:
+            seen.add(pair)
+            candidates.append(pair)
     return candidates
+
+
+def normalize_warp_endpoints(raw_eps: list[Any]) -> list[dict[str, Any]]:
+    """兼容旧版 [ip, port] 列表与新版 {ip, port, delay_ms, speed_mbps} 字典列表。"""
+    out: list[dict[str, Any]] = []
+    for item in raw_eps or []:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            out.append({"ip": str(item[0]), "port": int(item[1]), "delay_ms": None, "speed_mbps": None})
+        elif isinstance(item, dict) and item.get("ip") and item.get("port"):
+            delay = item.get("delay_ms")
+            speed = item.get("speed_mbps")
+            out.append({
+                "ip": str(item["ip"]),
+                "port": int(item["port"]),
+                "delay_ms": int(delay) if isinstance(delay, (int, float)) else None,
+                "speed_mbps": round(float(speed), 2) if isinstance(speed, (int, float)) else None,
+            })
+    return out
 
 
 def build_warp_proxies(account: dict[str, Any], endpoints: list[tuple[str, int]], use_awg: bool = True) -> list[dict[str, Any]]:

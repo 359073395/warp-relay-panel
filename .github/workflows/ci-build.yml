@@ -1,0 +1,120 @@
+name: CI, Windows & Android Release Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies and PyInstaller
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Build Windows app & setup installer
+        shell: pwsh
+        run: ./build.ps1 -IncludeCore -BuildInstaller -SkipTests
+      - name: Upload Windows build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarBridge-win64
+          path: |
+            release/StarBridge-win64.zip
+            release/StarBridge-Setup.exe
+
+  build-android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+      - name: Fetch Android cores (mihomo, xray, hev-socks5-tunnel, GeoIP)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 android/fetch_deps.py
+      - name: Prepare Android release signing keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          SECRET_KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SECRET_KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          KS_PATH="${RUNNER_TEMP}/starbridge-release.jks"
+          if [ -n "$ANDROID_KEYSTORE_B64" ]; then
+            echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$KS_PATH"
+            echo "ANDROID_KEYSTORE_PATH=$KS_PATH" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=${SECRET_KS_PASS:-starbridge}" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=${SECRET_KEY_ALIAS:-starbridge}" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=${SECRET_KEY_PASS:-starbridge}" >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -v -keystore "$KS_PATH" -storetype PKCS12 \
+              -alias starbridge -storepass starbridge -keypass starbridge \
+              -keyalg RSA -keysize 2048 -validity 3650 \
+              -dname "CN=StarBridge, OU=Mobile, O=StarBridge, L=HK, S=HK, C=HK"
+            echo "ANDROID_KEYSTORE_PATH=$KS_PATH" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=starbridge" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=starbridge" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=starbridge" >> "$GITHUB_ENV"
+          fi
+      - name: Build Android APK
+        run: gradle -p android assembleRelease --no-daemon
+      - name: Stage & verify embedded cores inside APK
+        run: |
+          mkdir -p release
+          cp android/app/build/outputs/apk/release/app-release.apk release/StarBridge-android-arm64.apk
+          python3 -c "import zipfile; names = set(zipfile.ZipFile('release/StarBridge-android-arm64.apk').namelist()); req = ['lib/arm64-v8a/libmihomo.so', 'lib/arm64-v8a/libxray.so', 'lib/arm64-v8a/libhev-socks5-tunnel.so', 'assets/core/geoip.dat', 'assets/core/geosite.dat', 'assets/core/geoip.metadb']; missing = [r for r in req if r not in names]; print('APK verified:', req); assert not missing, f'Missing inside APK: {missing}'"
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StarBridge-android-arm64
+          path: release/StarBridge-android-arm64.apk
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist_artifacts
+      - name: Publish GitHub Release with Windows & Android binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist_artifacts/StarBridge-win64/StarBridge-win64.zip
+            dist_artifacts/StarBridge-win64/StarBridge-Setup.exe
+            dist_artifacts/StarBridge-android-arm64/StarBridge-android-arm64.apk

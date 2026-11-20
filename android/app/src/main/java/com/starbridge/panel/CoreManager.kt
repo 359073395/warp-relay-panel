@@ -1,0 +1,1041 @@
+package com.starbridge.panel
+
+import android.content.Context
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
+import org.yaml.snakeyaml.DumperOptions
+import org.yaml.snakeyaml.Yaml
+import java.io.File
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.ServerSocket
+import java.net.Socket
+import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+
+class CoreManager(private val context: Context) {
+    companion object {
+        const val MIXED_PORT = 17890
+        const val CTRL_PORT = 19091
+        private const val PUBLIC_REMOTE_URL =
+            "https://raw.githubusercontent.com/359073395/subs-check-auto/main/subs/all.yaml"
+        private val GH_MIRRORS = listOf("", "https://gh-proxy.com/", "https://mirror.ghproxy.com/", "https://ghfast.top/")
+        private val GEO_FILES = listOf("geosite.dat", "geoip.dat", "geoip.metadb")
+    }
+
+    private val nativeDir = File(context.applicationInfo.nativeLibraryDir)
+    val mihomoExe = File(nativeDir, "libmihomo.so")
+    val xrayExe = File(nativeDir, "libxray.so")
+    val coreDir = File(context.filesDir, "core").apply { mkdirs() }
+    private val dataDir = File(context.filesDir, "data").apply { mkdirs() }
+    private val stateFile = File(dataDir, "state.json")
+
+    private val lock = Any()
+    @Volatile var running = false
+    private var mihomoProc: Process? = null
+    private var xrayProc: Process? = null
+    private var lastSmartSummary = ""
+    private var lastSmartTime = ""
+
+    private val directHttp = OkHttpClient.Builder()
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    init {
+        ensureGeoAssets()
+        if (!stateFile.exists()) {
+            saveState(defaultState())
+        }
+    }
+
+    private fun ensureGeoAssets() {
+        for (name in GEO_FILES) {
+            val out = File(coreDir, name)
+            if (out.exists() && out.length() > 0) continue
+            runCatching {
+                context.assets.open("core/$name").use { input ->
+                    out.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }
+    }
+
+    private fun defaultState(): JSONObject {
+        val settings = JSONObject()
+            .put("underlay_strategy", "auto_free")
+            .put("selected_underlay", "")
+            .put("use_awg", true)
+            .put("use_exit_hop", false)
+            .put("selected_exit_id", "")
+            .put("route_mode", "bypass_cn")
+            .put("smart_auto_select", false)
+        return JSONObject()
+            .put("settings", settings)
+            .put("custom_underlays", JSONArray())
+            .put("underlay_subs", JSONArray())
+            .put("public_backups", JSONArray())
+            .put("warp_account", JSONObject())
+            .put("warp_endpoints", JSONArray())
+            .put("exits", JSONArray())
+    }
+
+    private fun loadState(): JSONObject = synchronized(lock) {
+        return try {
+            val s = JSONObject(stateFile.readText())
+            if (!s.has("settings")) s.put("settings", defaultState().getJSONObject("settings"))
+            if (!s.has("custom_underlays")) s.put("custom_underlays", JSONArray())
+            if (!s.has("underlay_subs")) s.put("underlay_subs", JSONArray())
+            if (!s.has("public_backups")) s.put("public_backups", JSONArray())
+            if (!s.has("warp_account")) s.put("warp_account", JSONObject())
+            if (!s.has("warp_endpoints")) s.put("warp_endpoints", JSONArray())
+            if (!s.has("exits")) s.put("exits", JSONArray())
+            s
+        } catch (_: Exception) {
+            defaultState()
+        }
+    }
+
+    private fun saveState(st: JSONObject) = synchronized(lock) {
+        stateFile.writeText(st.toString(2))
+    }
+
+    private fun jsonToMap(obj: JSONObject): LinkedHashMap<String, Any?> {
+        val map = LinkedHashMap<String, Any?>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            map[k] = unwrapJson(obj.get(k))
+        }
+        return map
+    }
+
+    private fun jsonToList(arr: JSONArray): ArrayList<Any?> {
+        val list = ArrayList<Any?>(arr.length())
+        for (i in 0 until arr.length()) {
+            list.add(unwrapJson(arr.get(i)))
+        }
+        return list
+    }
+
+    private fun unwrapJson(v: Any?): Any? = when (v) {
+        JSONObject.NULL, null -> null
+        is JSONObject -> jsonToMap(v)
+        is JSONArray -> jsonToList(v)
+        else -> v
+    }
+
+    private fun mapToJson(map: Map<String, Any?>): JSONObject {
+        val obj = JSONObject()
+        for ((k, v) in map) {
+            obj.put(k, wrapJson(v))
+        }
+        return obj
+    }
+
+    private fun wrapJson(v: Any?): Any = when (v) {
+        null -> JSONObject.NULL
+        is Map<*, *> -> {
+            val obj = JSONObject()
+            for ((k, vv) in v) {
+                if (k != null) obj.put(k.toString(), wrapJson(vv))
+            }
+            obj
+        }
+        is List<*> -> {
+            val arr = JSONArray()
+            for (item in v) arr.put(wrapJson(item))
+            arr
+        }
+        else -> v
+    }
+
+    private fun nowStr(): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+
+    fun getStateSnapshot(): JSONObject {
+        val st = loadState()
+        val settings = st.getJSONObject("settings")
+        val warpEps = st.getJSONArray("warp_endpoints")
+        val warpAcc = st.getJSONObject("warp_account")
+        val pub = st.getJSONArray("public_backups")
+        val custom = st.getJSONArray("custom_underlays")
+        val subs = st.getJSONArray("underlay_subs")
+        val exits = st.getJSONArray("exits")
+
+        val customSummary = JSONArray()
+        for (i in 0 until custom.length()) {
+            val it = custom.getJSONObject(i)
+            val px = it.optJSONObject("proxy") ?: JSONObject()
+            customSummary.put(
+                JSONObject()
+                    .put("id", it.optString("id"))
+                    .put("name", it.optString("name"))
+                    .put("type", px.optString("type"))
+                    .put("server", px.optString("server"))
+                    .put("port", px.opt("port"))
+                    .put("delay_ms", it.opt("delay_ms"))
+                    .put("speed_mbps", it.opt("speed_mbps"))
+            )
+        }
+
+        val subSummary = JSONArray()
+        val subUnderlays = JSONArray()
+        for (i in 0 until subs.length()) {
+            val sub = subs.getJSONObject(i)
+            val nodes = sub.optJSONArray("nodes") ?: JSONArray()
+            subSummary.put(
+                JSONObject()
+                    .put("id", sub.optString("id"))
+                    .put("name", sub.optString("name"))
+                    .put("url", sub.optString("url"))
+                    .put("count", nodes.length())
+                    .put("updated_at", sub.optString("updated_at"))
+            )
+            for (j in 0 until nodes.length()) {
+                val n = nodes.getJSONObject(j)
+                subUnderlays.put(
+                    JSONObject()
+                        .put("name", n.optString("name"))
+                        .put("type", n.optString("type"))
+                        .put("server", n.optString("server"))
+                        .put("port", n.opt("port"))
+                        .put("delay_ms", n.opt("delay_ms"))
+                        .put("speed_mbps", n.opt("speed_mbps"))
+                )
+            }
+        }
+
+        val pubSummary = JSONArray()
+        for (i in 0 until pub.length()) {
+            val it = pub.getJSONObject(i)
+            val px = it.optJSONObject("proxy") ?: JSONObject()
+            pubSummary.put(
+                JSONObject()
+                    .put("id", it.optString("id"))
+                    .put("name", it.optString("name"))
+                    .put("type", px.optString("type"))
+                    .put("delay_ms", it.opt("delay_ms"))
+                    .put("speed_mbps", it.opt("speed_mbps"))
+            )
+        }
+
+        val exitSummary = JSONArray()
+        for (i in 0 until exits.length()) {
+            val it = exits.getJSONObject(i)
+            val px = it.optJSONObject("proxy") ?: JSONObject()
+            exitSummary.put(
+                JSONObject()
+                    .put("id", it.optString("id"))
+                    .put("name", it.optString("name"))
+                    .put("type", px.optString("type"))
+                    .put("server", px.optString("server"))
+                    .put("port", px.opt("port"))
+                    .put("delay_ms", it.opt("delay_ms"))
+            )
+        }
+
+        val live = if (running) getLiveStatus() else JSONObject()
+        return JSONObject()
+            .put("settings", settings)
+            .put(
+                "core_status",
+                JSONObject()
+                    .put("ready", mihomoExe.isFile)
+                    .put("has_exe", mihomoExe.isFile)
+                    .put("has_xray", xrayExe.isFile)
+                    .put("has_geo", GEO_FILES.all { File(coreDir, it).exists() })
+            )
+            .put(
+                "runtime",
+                JSONObject()
+                    .put("running", running)
+                    .put("mixed_port", MIXED_PORT)
+                    .put("active_hop1", live.optString("active_hop1", ""))
+                    .put("active_exit", live.optString("active_exit", ""))
+                    .put("upload_total", live.optLong("upload_total", 0))
+                    .put("download_total", live.optLong("download_total", 0))
+            )
+            .put(
+                "warp",
+                JSONObject()
+                    .put("registered", warpAcc.optString("private_key").isNotEmpty())
+                    .put("endpoint_count", warpEps.length())
+                    .put("endpoints", warpEps)
+            )
+            .put("public_backups", pubSummary)
+            .put("public_backups_count", pub.length())
+            .put("custom_underlays", customSummary)
+            .put("sub_underlays", subUnderlays)
+            .put("underlay_subs", subSummary)
+            .put("exits", exitSummary)
+            .put(
+                "smart_status",
+                JSONObject()
+                    .put("enabled", settings.optBoolean("smart_auto_select", false))
+                    .put("last_summary", lastSmartSummary)
+                    .put("last_time", lastSmartTime)
+            )
+    }
+
+    fun updateSettings(patch: JSONObject): JSONObject {
+        val st = loadState()
+        val settings = st.getJSONObject("settings")
+        val keys = patch.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            settings.put(k, patch.get(k))
+        }
+        saveState(st)
+        return getStateSnapshot()
+    }
+
+    private fun fetchPublicNodes(proxyPort: Int? = null): List<Map<String, Any?>> {
+        val http = if (proxyPort != null && proxyPort > 0) {
+            directHttp.newBuilder()
+                .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", proxyPort)))
+                .build()
+        } else {
+            directHttp
+        }
+        val mirrors = if (proxyPort != null && proxyPort > 0) listOf("") else GH_MIRRORS
+        for (prefix in mirrors) {
+            try {
+                val url = if (prefix.isEmpty()) PUBLIC_REMOTE_URL else "$prefix$PUBLIC_REMOTE_URL"
+                val req = Request.Builder().url(url).header("User-Agent", "StarBridge/1.0").build()
+                val body = http.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) error("HTTP ${r.code}")
+                    r.body?.string() ?: ""
+                }
+                val parsed = NodeParser.parseSubscriptionContent(body).take(40)
+                if (parsed.isNotEmpty()) return parsed
+            } catch (_: Exception) {
+            }
+        }
+        return emptyList()
+    }
+
+    private fun <T> withTempBootstrapProxy(proxies: List<Map<String, Any?>>, block: (Int) -> T): T? {
+        if (!mihomoExe.isFile || proxies.isEmpty()) return null
+        val tempMixed = ServerSocket(0).use { it.localPort }
+        val bridged = XrayBridge.prepare(dedupeAndStrip(proxies), xrayExe)
+        val names = bridged.mihomoProxies.map { it["name"].toString() }
+        val tmpDir = File(coreDir, "boot_tmp_${System.currentTimeMillis()}").apply { mkdirs() }
+        var xProc: Process? = null
+        var mProc: Process? = null
+        return try {
+            if (bridged.xrayConfigJson != null && xrayExe.isFile) {
+                val xf = File(tmpDir, "xray.json").apply { writeText(bridged.xrayConfigJson) }
+                xProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath).directory(coreDir).start()
+                Thread.sleep(200)
+            }
+            val cfg = linkedMapOf<String, Any?>(
+                "mixed-port" to tempMixed,
+                "allow-lan" to false,
+                "mode" to "rule",
+                "log-level" to "silent",
+                "dns" to mapOf("enable" to false),
+                "proxies" to bridged.mihomoProxies,
+                "proxy-groups" to listOf(
+                    mapOf("name" to "BOOT", "type" to "url-test", "proxies" to names, "url" to "http://cp.cloudflare.com/generate_204", "interval" to 120)
+                ),
+                "rules" to listOf("MATCH,BOOT")
+            )
+            val cf = File(tmpDir, "config.yaml").apply { writeText(buildYamlStr(cfg)) }
+            mProc = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath).directory(coreDir).start()
+            if (!waitForPort(tempMixed, 4500)) return null
+            block(tempMixed)
+        } catch (_: Exception) {
+            null
+        } finally {
+            runCatching { mProc?.destroy() }
+            runCatching { xProc?.destroy() }
+            runCatching { tmpDir.deleteRecursively() }
+        }
+    }
+
+    fun pullFreeUnderlays(): JSONObject {
+        val st = loadState()
+        var acct = st.getJSONObject("warp_account")
+        var warpErr: Exception? = null
+        if (acct.optString("private_key").isBlank()) {
+            try {
+                acct = WarpClient.registerAccount()
+                st.put("warp_account", acct)
+            } catch (e: Exception) {
+                warpErr = e
+            }
+        }
+        var eps = st.getJSONArray("warp_endpoints")
+        if (eps.length() == 0) {
+            val sampled = WarpClient.sampleEndpoints(12)
+            eps = JSONArray()
+            sampled.forEach { eps.put(it) }
+            st.put("warp_endpoints", eps)
+        }
+
+        // 先直连 + 镜像源拉取公益节点
+        var parsedPub = fetchPublicNodes()
+        // 若公益节点未拉到但 WARP 已可用，用临时 WARP 通道拉取公益节点
+        if (parsedPub.isEmpty() && acct.optString("private_key").isNotBlank()) {
+            val epList = (0 until eps.length()).map { eps.getJSONObject(it) }
+            val warpProxies = WarpClient.buildWarpProxies(acct, epList, true)
+            parsedPub = withTempBootstrapProxy(warpProxies) { port -> fetchPublicNodes(port) } ?: emptyList()
+        }
+        // 若 WARP 直连注册失败但公益节点拉到了，借助临时公益节点完成 WARP 注册
+        if (acct.optString("private_key").isBlank() && parsedPub.isNotEmpty()) {
+            withTempBootstrapProxy(parsedPub.take(15)) { port ->
+                runCatching {
+                    acct = WarpClient.registerAccount(proxyPort = port)
+                    st.put("warp_account", acct)
+                    warpErr = null
+                }
+            }
+        }
+
+        if (parsedPub.isNotEmpty()) {
+            val arr = JSONArray()
+            parsedPub.forEachIndexed { i, p ->
+                val pname = "公益-${(i + 1).toString().padStart(2, '0')}-${p["name"] ?: "node"}"
+                val mut = LinkedHashMap(p)
+                mut["name"] = pname
+                arr.put(
+                    JSONObject()
+                        .put("id", "pub-${i + 1}")
+                        .put("name", pname)
+                        .put("proxy", mapToJson(mut))
+                        .put("delay_ms", JSONObject.NULL)
+                        .put("speed_mbps", JSONObject.NULL)
+                )
+            }
+            st.put("public_backups", arr)
+        }
+        val pubCount = st.getJSONArray("public_backups").length()
+        if (acct.optString("private_key").isBlank() && pubCount == 0 && warpErr != null) {
+            throw warpErr!!
+        }
+        saveState(st)
+        return JSONObject()
+            .put("ok", true)
+            .put("warp_count", eps.length())
+            .put("public_count", pubCount)
+    }
+
+    fun addCustomUnderlays(text: String): JSONObject {
+        val parsed = NodeParser.parseSubscriptionContent(text)
+        val st = loadState()
+        val arr = st.getJSONArray("custom_underlays")
+        var added = 0
+        for (p in parsed) {
+            val name = p["name"]?.toString()?.ifBlank { "自建-${arr.length() + 1}" } ?: "自建-${arr.length() + 1}"
+            val mut = LinkedHashMap(p)
+            mut["name"] = name
+            arr.put(
+                JSONObject()
+                    .put("id", UUID.randomUUID().toString().take(8))
+                    .put("name", name)
+                    .put("proxy", mapToJson(mut))
+                    .put("delay_ms", JSONObject.NULL)
+                    .put("speed_mbps", JSONObject.NULL)
+            )
+            added++
+        }
+        saveState(st)
+        return JSONObject().put("ok", true).put("added", added)
+    }
+
+    fun deleteCustomUnderlay(id: String) {
+        val st = loadState()
+        val arr = st.getJSONArray("custom_underlays")
+        val next = JSONArray()
+        for (i in 0 until arr.length()) {
+            if (arr.getJSONObject(i).optString("id") != id) next.put(arr.get(i))
+        }
+        st.put("custom_underlays", next)
+        saveState(st)
+    }
+
+    fun addUnderlaySub(url: String, name: String = ""): JSONObject {
+        val req = Request.Builder().url(url.trim()).header("User-Agent", "ClashMeta/1.18").build()
+        val body = directHttp.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) error("订阅拉取失败 HTTP ${r.code}")
+            r.body?.string() ?: ""
+        }
+        val nodes = NodeParser.parseSubscriptionContent(body)
+        if (nodes.isEmpty()) error("未从订阅中解析到有效节点")
+        val label = name.ifBlank { "订阅-${UUID.randomUUID().toString().take(4)}" }
+        val nodeArr = JSONArray()
+        nodes.forEachIndexed { idx, p ->
+            val mut = LinkedHashMap(p)
+            val rawName = p["name"]?.toString()?.ifBlank { "节点${idx + 1}" } ?: "节点${idx + 1}"
+            mut["name"] = "[$label] $rawName"
+            mut["delay_ms"] = null
+            mut["speed_mbps"] = null
+            nodeArr.put(mapToJson(mut))
+        }
+        val st = loadState()
+        st.getJSONArray("underlay_subs").put(
+            JSONObject()
+                .put("id", UUID.randomUUID().toString().take(8))
+                .put("name", label)
+                .put("url", url.trim())
+                .put("updated_at", nowStr())
+                .put("nodes", nodeArr)
+        )
+        saveState(st)
+        return JSONObject().put("ok", true).put("count", nodeArr.length())
+    }
+
+    fun deleteUnderlaySub(id: String) {
+        val st = loadState()
+        val subs = st.getJSONArray("underlay_subs")
+        val next = JSONArray()
+        for (i in 0 until subs.length()) {
+            if (subs.getJSONObject(i).optString("id") != id) next.put(subs.get(i))
+        }
+        st.put("underlay_subs", next)
+        saveState(st)
+    }
+
+    fun addExitNode(raw: String, remark: String = "", defaultType: String = "socks5"): JSONObject {
+        val lines = raw.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val st = loadState()
+        val exits = st.getJSONArray("exits")
+        var added = 0
+        var lastId = ""
+        for (line in lines) {
+            val p = NodeParser.parseResidentialLine(line, remark, defaultType) ?: continue
+            val id = UUID.randomUUID().toString().take(8)
+            exits.put(
+                JSONObject()
+                    .put("id", id)
+                    .put("name", p["name"]?.toString() ?: "住宅-$id")
+                    .put("proxy", mapToJson(p))
+                    .put("delay_ms", JSONObject.NULL)
+            )
+            lastId = id
+            added++
+        }
+        if (added > 0) {
+            val s = st.getJSONObject("settings")
+            s.put("use_exit_hop", true)
+            s.put("selected_exit_id", lastId)
+        }
+        saveState(st)
+        return JSONObject().put("ok", true).put("added", added).put("selected_exit_id", lastId)
+    }
+
+    fun deleteExitNode(id: String) {
+        val st = loadState()
+        val exits = st.getJSONArray("exits")
+        val next = JSONArray()
+        for (i in 0 until exits.length()) {
+            if (exits.getJSONObject(i).optString("id") != id) next.put(exits.get(i))
+        }
+        st.put("exits", next)
+        saveState(st)
+    }
+
+    fun selectUnderlay(name: String) {
+        val st = loadState()
+        val s = st.getJSONObject("settings")
+        s.put("selected_underlay", name)
+        s.put("underlay_strategy", "manual")
+        saveState(st)
+        if (running) {
+            runCatching { switchGroup("HOP1", name) }
+        }
+    }
+
+    private fun switchGroup(group: String, nodeName: String) {
+        val body = JSONObject().put("name", nodeName).toString().toRequestBody("application/json".toMediaType())
+        val enc = URLEncoder.encode(group, "UTF-8").replace("+", "%20")
+        val req = Request.Builder().url("http://127.0.0.1:$CTRL_PORT/proxies/$enc").put(body).build()
+        directHttp.newCall(req).execute().close()
+    }
+
+    private fun collectHop1Pool(st: JSONObject, kind: String): List<Triple<String, Map<String, Any?>, Any>> {
+        // Triple(key, proxyMap, refObj)
+        val result = ArrayList<Triple<String, Map<String, Any?>, Any>>()
+        val settings = st.getJSONObject("settings")
+        val useAwg = settings.optBoolean("use_awg", true)
+
+        if (kind in setOf("all", "user", "custom")) {
+            val arr = st.getJSONArray("custom_underlays")
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                val px = jsonToMap(item.getJSONObject("proxy"))
+                px["name"] = item.getString("name")
+                result.add(Triple("custom:${item.getString("id")}", px, item))
+            }
+        }
+        if (kind in setOf("all", "user", "sub")) {
+            val subs = st.getJSONArray("underlay_subs")
+            for (i in 0 until subs.length()) {
+                val nodes = subs.getJSONObject(i).optJSONArray("nodes") ?: continue
+                for (j in 0 until nodes.length()) {
+                    val item = nodes.getJSONObject(j)
+                    val px = jsonToMap(item)
+                    result.add(Triple("sub:${item.optString("name")}", px, item))
+                }
+            }
+        }
+        if (kind in setOf("all", "free", "public")) {
+            val arr = st.getJSONArray("public_backups")
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                val px = jsonToMap(item.getJSONObject("proxy"))
+                px["name"] = item.getString("name")
+                result.add(Triple("public:${item.getString("id")}", px, item))
+            }
+        }
+        if (kind in setOf("all", "free", "warp")) {
+            val acc = st.getJSONObject("warp_account")
+            val eps = st.getJSONArray("warp_endpoints")
+            if (acc.optString("private_key").isNotEmpty() && eps.length() > 0) {
+                val epList = (0 until eps.length()).map { eps.getJSONObject(it) }
+                val built = WarpClient.buildWarpProxies(acc, epList, useAwg)
+                built.forEachIndexed { idx, px ->
+                    result.add(Triple("warp:$idx", px, eps.getJSONObject(idx)))
+                }
+            }
+        }
+        return result
+    }
+
+    private fun dedupeAndStrip(proxies: List<Map<String, Any?>>): List<Map<String, Any?>> {
+        val seen = HashSet<String>()
+        val out = ArrayList<Map<String, Any?>>()
+        for (p in proxies) {
+            var name = p["name"]?.toString()?.ifBlank { "node" } ?: "node"
+            var idx = 2
+            while (!seen.add(name)) {
+                name = "${p["name"]}_$idx"
+                idx++
+            }
+            val mut = LinkedHashMap(p)
+            mut["name"] = name
+            out.add(mut)
+        }
+        return out
+    }
+
+    private fun buildYamlStr(config: Map<String, Any?>): String {
+        val opts = DumperOptions().apply {
+            defaultFlowStyle = DumperOptions.FlowStyle.BLOCK
+            isPrettyFlow = true
+        }
+        return Yaml(opts).dump(config)
+    }
+
+    private fun waitForPort(port: Int, timeoutMs: Long = 5000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                Socket().use { s ->
+                    s.connect(InetSocketAddress("127.0.0.1", port), 200)
+                    return true
+                }
+            } catch (_: Exception) {
+                Thread.sleep(100)
+            }
+        }
+        return false
+    }
+
+    fun testPool(kind: String, targetId: String = "", nodeName: String = "", testSpeed: Boolean = true): JSONObject {
+        if (!mihomoExe.isFile) error("未找到 libmihomo.so 内核文件")
+        val st = loadState()
+        val items = collectHop1Pool(st, kind).filter { (key, px, _) ->
+            when {
+                targetId.isNotEmpty() -> key.endsWith(":$targetId")
+                nodeName.isNotEmpty() -> px["name"]?.toString() == nodeName
+                else -> true
+            }
+        }
+        if (items.isEmpty()) {
+            return JSONObject().put("tested", 0).put("alive", 0)
+        }
+
+        val tempMixed = ServerSocket(0).use { it.localPort }
+        val tempCtrl = ServerSocket(0).use { it.localPort }
+        val rawProxies = dedupeAndStrip(items.map { it.second })
+        val bridged = XrayBridge.prepare(rawProxies, xrayExe)
+        val aliases = bridged.mihomoProxies.map { it["name"].toString() }
+
+        val tempDir = File(coreDir, "probe_tmp_${System.currentTimeMillis()}").apply { mkdirs() }
+        var tmpXray: Process? = null
+        var tmpMihomo: Process? = null
+
+        try {
+            if (bridged.xrayConfigJson != null && xrayExe.isFile) {
+                val xf = File(tempDir, "xray.json").apply { writeText(bridged.xrayConfigJson) }
+                tmpXray = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
+                    .directory(coreDir)
+                    .start()
+                Thread.sleep(250)
+            }
+
+            val cfg = linkedMapOf<String, Any?>(
+                "mixed-port" to tempMixed,
+                "allow-lan" to false,
+                "mode" to "rule",
+                "log-level" to "silent",
+                "external-controller" to "127.0.0.1:$tempCtrl",
+                "dns" to mapOf("enable" to false),
+                "proxies" to bridged.mihomoProxies,
+                "proxy-groups" to listOf(
+                    mapOf("name" to "PROBE", "type" to "select", "proxies" to aliases)
+                ),
+                "rules" to listOf("MATCH,PROBE")
+            )
+            val cf = File(tempDir, "config.yaml").apply { writeText(buildYamlStr(cfg)) }
+            tmpMihomo = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath)
+                .directory(coreDir)
+                .start()
+
+            if (!waitForPort(tempCtrl, 5000)) error("临时测速内核启动超时")
+
+            val exec = Executors.newFixedThreadPool(8)
+            val delayMap = HashMap<String, Int?>()
+            val futures = aliases.map { alias ->
+                exec.submit(Callable {
+                    val d = probeSingleDelay(tempCtrl, alias)
+                    alias to d
+                })
+            }
+            for (f in futures) {
+                val (alias, d) = f.get()
+                delayMap[alias] = d
+            }
+            exec.shutdown()
+
+            val speedMap = HashMap<String, Double?>()
+            if (testSpeed) {
+                val aliveAliases = aliases.filter { (delayMap[it] ?: -1) > 0 }.take(15)
+                val proxyHttp = directHttp.newBuilder()
+                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", tempMixed)))
+                    .connectTimeout(6, TimeUnit.SECONDS)
+                    .readTimeout(6, TimeUnit.SECONDS)
+                    .build()
+                for (alias in aliveAliases) {
+                    runCatching {
+                        val enc = URLEncoder.encode("PROBE", "UTF-8")
+                        val putReq = Request.Builder()
+                            .url("http://127.0.0.1:$tempCtrl/proxies/$enc")
+                            .put(JSONObject().put("name", alias).toString().toRequestBody("application/json".toMediaType()))
+                            .build()
+                        directHttp.newCall(putReq).execute().close()
+
+                        val start = System.nanoTime()
+                        val dlReq = Request.Builder()
+                            .url("https://speed.cloudflare.com/__down?bytes=1500000")
+                            .build()
+                        var bytes = 0L
+                        proxyHttp.newCall(dlReq).execute().use { r ->
+                            val buf = ByteArray(16384)
+                            val stream = r.body?.byteStream()
+                            if (stream != null) {
+                                while (true) {
+                                    val n = stream.read(buf)
+                                    if (n <= 0) break
+                                    bytes += n
+                                    if (System.nanoTime() - start > 3_500_000_000L) break
+                                }
+                            }
+                        }
+                        val sec = (System.nanoTime() - start) / 1e9
+                        if (bytes > 8192 && sec > 0.05) {
+                            val mbps = ((bytes * 8.0) / sec) / 1_000_000.0
+                            speedMap[alias] = Math.round(mbps * 100.0) / 100.0
+                        }
+                    }
+                }
+            }
+
+            var alive = 0
+            var bestName = ""
+            var bestMs = 0
+            var bestMbps = 0.0
+            var bestScore = -1.0
+
+            items.forEachIndexed { idx, (_, px, refObj) ->
+                val alias = aliases[idx]
+                val d = delayMap[alias]
+                val spd = speedMap[alias]
+                val obj = refObj as JSONObject
+                if (d != null && d > 0) {
+                    alive++
+                    obj.put("delay_ms", d)
+                    if (spd != null) obj.put("speed_mbps", spd) else obj.put("speed_mbps", JSONObject.NULL)
+                    val score = (spd ?: 0.0) * 1000.0 - d
+                    if (score > bestScore) {
+                        bestScore = score
+                        bestName = px["name"].toString()
+                        bestMs = d
+                        bestMbps = spd ?: 0.0
+                    }
+                } else {
+                    obj.put("delay_ms", -1)
+                    obj.put("speed_mbps", JSONObject.NULL)
+                }
+            }
+            sortRankedArrays(st)
+            saveState(st)
+            return JSONObject()
+                .put("tested", items.size)
+                .put("alive", alive)
+                .put("best_name", bestName)
+                .put("best_ms", bestMs)
+                .put("best_mbps", bestMbps)
+        } finally {
+            runCatching { tmpMihomo?.destroy() }
+            runCatching { tmpXray?.destroy() }
+            runCatching { tempDir.deleteRecursively() }
+        }
+    }
+
+    private fun sortRankedArrays(st: JSONObject) {
+        fun rank(obj: JSONObject): Double {
+            val d = obj.optInt("delay_ms", 0)
+            if (d > 0) return -1_000_000.0 - obj.optDouble("speed_mbps", 0.0) * 1000.0 + d
+            if (d == -1) return 1_000_000.0
+            return 0.0
+        }
+        for (key in listOf("custom_underlays", "public_backups", "warp_endpoints")) {
+            val arr = st.getJSONArray(key)
+            val list = (0 until arr.length()).map { arr.getJSONObject(it) }.sortedBy { rank(it) }
+            val next = JSONArray()
+            list.forEach { next.put(it) }
+            st.put(key, next)
+        }
+    }
+
+    private fun probeSingleDelay(ctrlPort: Int, alias: String): Int? {
+        val enc = URLEncoder.encode(alias, "UTF-8").replace("+", "%20")
+        for (testUrl in listOf("https://www.gstatic.com/generate_204", "http://cp.cloudflare.com/generate_204")) {
+            try {
+                val u = "http://127.0.0.1:$ctrlPort/proxies/$enc/delay?timeout=4500&url=${URLEncoder.encode(testUrl, "UTF-8")}"
+                val req = Request.Builder().url(u).build()
+                directHttp.newCall(req).execute().use { r ->
+                    if (r.isSuccessful) {
+                        val d = JSONObject(r.body?.string() ?: "{}").optInt("delay", 0)
+                        if (d > 0) return d
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
+
+    fun smartSelectBest(): JSONObject {
+        val st = loadState()
+        val strat = st.getJSONObject("settings").optString("underlay_strategy", "auto_free")
+        val kind = when (strat) {
+            "warp_only" -> "warp"
+            "public_only" -> "public"
+            "custom_only" -> "user"
+            else -> "free"
+        }
+        val res = testPool(kind, testSpeed = true)
+        val best = res.optString("best_name", "")
+        if (best.isNotEmpty()) {
+            selectUnderlay(best)
+            lastSmartSummary = "$best (${res.optInt("best_ms")}ms / ${res.optDouble("best_mbps")} Mbps)"
+            lastSmartTime = nowStr()
+        }
+        return res.put("best_underlay", best)
+    }
+
+    fun startCore() {
+        stopCore()
+        if (!mihomoExe.isFile) error("未找到 libmihomo.so 内核")
+        val st = loadState()
+        val s = st.getJSONObject("settings")
+        if (s.optBoolean("smart_auto_select", false) && s.optString("underlay_strategy") != "direct") {
+            runCatching { smartSelectBest() }
+        }
+        val fresh = loadState()
+        val fs = fresh.getJSONObject("settings")
+        val strat = fs.optString("underlay_strategy", "auto_free")
+
+        val hop1Candidates = when (strat) {
+            "direct" -> emptyList()
+            "warp_only" -> collectHop1Pool(fresh, "warp").map { it.second }
+            "public_only" -> collectHop1Pool(fresh, "public").map { it.second }
+            "custom_only" -> collectHop1Pool(fresh, "user").map { it.second }
+            "auto_free", "auto" -> collectHop1Pool(fresh, "free").map { it.second }
+            else -> collectHop1Pool(fresh, "all").map { it.second }
+        }
+        val hop1Unique = dedupeAndStrip(hop1Candidates)
+        val allProxies = ArrayList<Map<String, Any?>>(hop1Unique)
+        val hop1Names = hop1Unique.map { it["name"].toString() }.toMutableList()
+        if (strat == "manual") {
+            val sel = fs.optString("selected_underlay")
+            if (sel.isNotEmpty() && hop1Names.remove(sel)) {
+                hop1Names.add(0, sel)
+            }
+        }
+
+        val groups = ArrayList<Map<String, Any?>>()
+        if (strat == "direct" || hop1Names.isEmpty()) {
+            groups.add(mapOf("name" to "HOP1", "type" to "select", "proxies" to listOf("DIRECT")))
+        } else if (strat in setOf("auto_free", "auto", "warp_only", "public_only")) {
+            groups.add(
+                mapOf(
+                    "name" to "HOP1",
+                    "type" to "url-test",
+                    "proxies" to hop1Names,
+                    "url" to "http://www.gstatic.com/generate_204",
+                    "interval" to 300
+                )
+            )
+        } else {
+            groups.add(mapOf("name" to "HOP1", "type" to "select", "proxies" to hop1Names))
+        }
+
+        var finalGroup = "HOP1"
+        if (fs.optBoolean("use_exit_hop", false)) {
+            val exits = fresh.getJSONArray("exits")
+            val selExitId = fs.optString("selected_exit_id")
+            var chosenExit: JSONObject? = null
+            for (i in 0 until exits.length()) {
+                val e = exits.getJSONObject(i)
+                if (e.optString("id") == selExitId || chosenExit == null) chosenExit = e
+                if (e.optString("id") == selExitId) break
+            }
+            if (chosenExit != null) {
+                val exitPx = jsonToMap(chosenExit.getJSONObject("proxy"))
+                exitPx["name"] = "EXIT-${chosenExit.optString("name", "node")}"
+                if (strat != "direct" && hop1Names.isNotEmpty()) {
+                    exitPx["dialer-proxy"] = "HOP1"
+                }
+                allProxies.add(exitPx)
+                groups.add(mapOf("name" to "EXIT", "type" to "select", "proxies" to listOf(exitPx["name"].toString())))
+                finalGroup = "EXIT"
+            }
+        }
+
+        val bridged = XrayBridge.prepare(allProxies, xrayExe)
+        if (bridged.xrayConfigJson != null && xrayExe.isFile) {
+            val xf = File(coreDir, "xray.json").apply { writeText(bridged.xrayConfigJson) }
+            xrayProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
+                .directory(coreDir)
+                .redirectErrorStream(true)
+                .start()
+            Thread.sleep(250)
+        }
+
+        val routeMode = fs.optString("route_mode", "bypass_cn")
+        val rules = if (routeMode == "global") {
+            listOf("MATCH,$finalGroup")
+        } else {
+            listOf(
+                "GEOIP,PRIVATE,DIRECT,no-resolve",
+                "GEOSITE,cn,DIRECT",
+                "GEOIP,CN,DIRECT,no-resolve",
+                "MATCH,$finalGroup"
+            )
+        }
+
+        val cfg = linkedMapOf<String, Any?>(
+            "mixed-port" to MIXED_PORT,
+            "allow-lan" to false,
+            "mode" to "rule",
+            "log-level" to "info",
+            "external-controller" to "127.0.0.1:$CTRL_PORT",
+            "dns" to mapOf(
+                "enable" to true,
+                "ipv6" to false,
+                "enhanced-mode" to "fake-ip",
+                "fake-ip-range" to "198.18.0.1/16",
+                "nameserver" to listOf("223.5.5.5", "119.29.29.29"),
+                "fallback" to listOf("1.1.1.1", "8.8.8.8")
+            ),
+            "proxies" to bridged.mihomoProxies,
+            "proxy-groups" to groups,
+            "rules" to rules
+        )
+        val cf = File(coreDir, "config.yaml").apply { writeText(buildYamlStr(cfg)) }
+        val logFile = File(coreDir, "core.log")
+        mihomoProc = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath)
+            .directory(coreDir)
+            .redirectErrorStream(true)
+            .redirectOutput(logFile)
+            .start()
+
+        if (!waitForPort(MIXED_PORT, 6000)) {
+            stopCore()
+            error("Mihomo 启动超时，请查看 core.log")
+        }
+        running = true
+    }
+
+    fun stopCore() {
+        running = false
+        runCatching { mihomoProc?.destroy() }
+        runCatching { xrayProc?.destroy() }
+        mihomoProc = null
+        xrayProc = null
+    }
+
+    fun getLiveStatus(): JSONObject {
+        val out = JSONObject()
+        runCatching {
+            val req = Request.Builder().url("http://127.0.0.1:$CTRL_PORT/proxies").build()
+            directHttp.newCall(req).execute().use { r ->
+                val obj = JSONObject(r.body?.string() ?: "{}").optJSONObject("proxies") ?: JSONObject()
+                out.put("active_hop1", obj.optJSONObject("HOP1")?.optString("now", "") ?: "")
+                out.put("active_exit", obj.optJSONObject("EXIT")?.optString("now", "") ?: "")
+            }
+            val creq = Request.Builder().url("http://127.0.0.1:$CTRL_PORT/connections").build()
+            directHttp.newCall(creq).execute().use { r ->
+                val c = JSONObject(r.body?.string() ?: "{}")
+                out.put("upload_total", c.optLong("uploadTotal", 0))
+                out.put("download_total", c.optLong("downloadTotal", 0))
+            }
+        }
+        return out
+    }
+
+    fun diagnose(): JSONObject {
+        val client = if (running) {
+            directHttp.newBuilder()
+                .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MIXED_PORT)))
+                .connectTimeout(8, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .build()
+        } else directHttp
+
+        val out = JSONObject()
+        runCatching {
+            val r = client.newCall(Request.Builder().url("http://ip-api.com/json/?lang=zh-CN").build()).execute()
+            r.use {
+                val j = JSONObject(it.body?.string() ?: "{}")
+                out.put("ip", j.optString("query", "-"))
+                out.put("country", j.optString("country", "-"))
+                out.put("city", j.optString("city", ""))
+                out.put("isp", j.optString("isp", ""))
+            }
+        }.onFailure {
+            out.put("error", it.message ?: "无法访问检测服务")
+        }
+        val t0 = System.currentTimeMillis()
+        val googleOk = runCatching {
+            client.newCall(Request.Builder().url("https://www.gstatic.com/generate_204").build()).execute().use { it.code in 200..299 }
+        }.getOrDefault(false)
+        out.put("google_ok", googleOk)
+        out.put("google_ms", if (googleOk) System.currentTimeMillis() - t0 else -1)
+        return out
+    }
+}
