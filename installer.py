@@ -157,13 +157,17 @@ def perform_install(
 
 
 def run_gui() -> int:
+    import ctypes
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+
     root = tk.Tk()
     root.title(f"{DISPLAY_NAME} 安装向导")
-    root.geometry("540x330")
-    root.resizable(False, False)
     root.configure(bg="#0b1220")
     ico = resolve_icon_path()
     if ico:
@@ -186,7 +190,7 @@ def run_gui() -> int:
     status_var = tk.StringVar(value="准备就绪，选择安装目录后点击「开始安装」")
 
     header = tk.Frame(root, bg="#0b1220")
-    header.pack(fill="x", padx=22, pady=(18, 8))
+    header.pack(side="top", fill="x", padx=22, pady=(18, 8))
     tk.Label(
         header,
         text="星桥 (StarBridge) 安装程序",
@@ -203,6 +207,10 @@ def run_gui() -> int:
         bg="#0b1220",
         anchor="w",
     ).pack(fill="x", pady=(3, 0))
+
+    # 先固定在底部，确保任何 DPI 缩放下“开始安装/取消”按钮都不会被挤压裁剪
+    footer = tk.Frame(root, bg="#0b1220")
+    footer.pack(side="bottom", fill="x", padx=22, pady=(6, 16))
 
     body = tk.Frame(root, bg="#111827", highlightbackground="#1f2937", highlightthickness=1)
     body.pack(fill="both", expand=True, padx=22, pady=(4, 10))
@@ -285,9 +293,6 @@ def run_gui() -> int:
         anchor="w",
     ).pack(fill="x", padx=14, pady=(0, 8))
 
-    footer = tk.Frame(root, bg="#0b1220")
-    footer.pack(fill="x", padx=22, pady=(0, 14))
-
     def start_install() -> None:
         target = Path(dir_var.get().strip())
         if not str(target):
@@ -364,6 +369,14 @@ def run_gui() -> int:
         pady=6,
     )
     cancel_btn.pack(side="right", padx=(0, 8))
+
+    root.update_idletasks()
+    win_w = max(560, root.winfo_reqwidth() + 24)
+    win_h = max(410, root.winfo_reqheight() + 16)
+    pos_x = max(0, (root.winfo_screenwidth() - win_w) // 2)
+    pos_y = max(0, (root.winfo_screenheight() - win_h) // 2)
+    root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
+    root.minsize(win_w, win_h)
 
     root.mainloop()
     return 0
