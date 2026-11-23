@@ -61,6 +61,24 @@ class TestCoreUpdaterAndTray(unittest.TestCase):
         )
         t.stop()
 
+    def test_core_updater_mirrors_and_atom_fallback(self) -> None:
+        self.assertNotIn("https://mirror.ghproxy.com/", core_updater.GH_MIRRORS)
+        atom_xml = (
+            b'<feed xmlns="http://www.w3.org/2005/Atom">'
+            b'<entry><link href="https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.12"/></entry>'
+            b'</feed>'
+        )
+
+        def fake_open(url: str, proxy_url: str | None = None, timeout: float = 30.0) -> bytes:
+            if "api.github.com" in url:
+                raise RuntimeError("api blocked")
+            return atom_xml
+
+        with mock.patch.object(core_updater, "_open_url", side_effect=fake_open):
+            dl, tag = core_updater._resolve_mihomo_zip_url()
+        self.assertEqual(tag, "v1.19.12")
+        self.assertIn("mihomo-windows-amd64-compatible-v1.19.12.zip", dl)
+
 
 if __name__ == "__main__":
     unittest.main()

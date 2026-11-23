@@ -57,6 +57,13 @@ class TestAndroidProjectAndWorkflow(unittest.TestCase):
         self.assertIn('"find-process-mode" to "off"', core_mgr)
         self.assertIn('"sniffer"', core_mgr)
         self.assertIn("hotReloadConfig", core_mgr)
+        self.assertIn("xray.log", core_mgr)
+        self.assertIn("up_bps", core_mgr)
+        self.assertIn("visibilitychange", android_html)
+        self.assertIn("visibilitychange", desktop_html)
+
+        node_parser_kt = (ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "NodeParser.kt").read_text(encoding="utf-8")
+        self.assertIn("parseWireguard", node_parser_kt)
 
         vpn_svc = (ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "StarBridgeVpnService.kt").read_text(encoding="utf-8")
         self.assertIn("mapdns:", vpn_svc)

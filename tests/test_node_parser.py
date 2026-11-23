@@ -163,6 +163,39 @@ proxies:
         self.assertEqual(nodes2[0]["name"], "S1")
         self.assertEqual(nodes2[1]["type"], "http")
 
+    def test_fetch_subscription_prefers_proxy_when_provided(self) -> None:
+        from unittest import mock
+
+        seen_proxies: list[dict[str, str]] = []
+
+        class _Resp:
+            def __init__(self, body: bytes) -> None:
+                self._body = body
+
+            def read(self) -> bytes:
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        class _Opener:
+            def open(self, req, timeout=15):
+                return _Resp(b"socks5://1.2.3.4:1080#ProxiedNode")
+
+        def fake_proxy_handler(mapping):
+            seen_proxies.append(dict(mapping))
+            return mock.MagicMock()
+
+        with mock.patch("urllib.request.ProxyHandler", side_effect=fake_proxy_handler), \
+             mock.patch("urllib.request.build_opener", return_value=_Opener()):
+            nodes = node_parser.fetch_subscription("https://example.com/sub.txt", proxy_url="http://127.0.0.1:17890")
+
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(seen_proxies[0], {"http": "http://127.0.0.1:17890", "https": "http://127.0.0.1:17890"})
+
 
 if __name__ == "__main__":
     unittest.main()

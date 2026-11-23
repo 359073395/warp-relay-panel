@@ -132,6 +132,7 @@ object NodeParser {
             "hy2", "hysteria2" -> parseHy2(url)
             "tuic" -> parseTuic(url)
             "anytls" -> parseAnyTls(url)
+            "wireguard", "wg" -> parseWireguard(url)
             "socks", "socks5", "socks4", "http", "https" -> parseSocksOrHttp(url, scheme)
             else -> null
         }
@@ -154,14 +155,22 @@ object NodeParser {
         proxy["alterId"] = json.optInt("aid", 0)
         proxy["cipher"] = json.optString("scy", "auto").ifBlank { "auto" }
         proxy["udp"] = true
-        if (json.optString("tls").lowercase() == "tls") {
+        val tlsVal = json.optString("tls").lowercase()
+        val host = json.optString("host")
+        if (tlsVal in setOf("tls", "true", "1")) {
             proxy["tls"] = true
-            val sni = json.optString("sni").ifBlank { json.optString("host") }
+            val sni = json.optString("sni").ifBlank { host }
             if (sni.isNotEmpty()) proxy["servername"] = sni
+            json.optString("fp").takeIf { it.isNotEmpty() }?.let { proxy["client-fingerprint"] = it }
+            json.optString("alpn").takeIf { it.isNotEmpty() }?.let { alpn ->
+                proxy["alpn"] = alpn.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            }
+            if (isTruth(json.optString("allowInsecure")) || isTruth(json.optString("insecure"))) {
+                proxy["skip-cert-verify"] = true
+            }
         }
         var net = json.optString("net", "tcp").lowercase().ifBlank { "tcp" }
         if (net == "splithttp") net = "xhttp"
-        val host = json.optString("host")
         val path = json.optString("path").ifBlank { "/" }
         when (net) {
             "ws", "httpupgrade" -> {
@@ -393,6 +402,39 @@ object NodeParser {
         qs["sni"]?.takeIf { it.isNotEmpty() }?.let { proxy["sni"] = it }
         (qs["fp"] ?: qs["fingerprint"])?.takeIf { it.isNotEmpty() }?.let { proxy["client-fingerprint"] = it }
         if (isTruth(qs["insecure"]) || isTruth(qs["allowinsecure"])) proxy["skip-cert-verify"] = true
+        return proxy
+    }
+
+    private fun parseWireguard(url: String): Map<String, Any?>? {
+        val norm = "wireguard://" + url.substringAfter("://")
+        val uri = try { URI(norm) } catch (_: Exception) { return null }
+        val server = uri.host ?: return null
+        val priv = urlDecode(uri.userInfo)
+        if (priv.isBlank()) return null
+        val port = safePort(uri.port, norm)
+        val qs = parseQuery(uri.rawQuery)
+        val addrRaw = qs["address"] ?: "172.16.0.2/32"
+        val ipv4 = addrRaw.split(',')[0].substringBefore('/').trim().ifBlank { "172.16.0.2" }
+
+        val peer = LinkedHashMap<String, Any?>()
+        peer["server"] = server
+        peer["port"] = port
+        peer["public-key"] = urlDecode(qs["publickey"] ?: qs["pbk"])
+        peer["allowed-ips"] = listOf("0.0.0.0/0")
+        (qs["presharedkey"] ?: qs["psk"])?.takeIf { it.isNotEmpty() }?.let { peer["pre-shared-key"] = urlDecode(it) }
+        qs["reserved"]?.takeIf { it.isNotEmpty() }?.let { resRaw ->
+            val parts = resRaw.split(',').mapNotNull { it.trim().toIntOrNull() }
+            if (parts.isNotEmpty()) peer["reserved"] = parts
+        }
+
+        val proxy = LinkedHashMap<String, Any?>()
+        proxy["name"] = urlDecode(uri.fragment).ifBlank { "wg-$server" }
+        proxy["type"] = "wireguard"
+        proxy["private-key"] = priv
+        proxy["ip"] = ipv4
+        proxy["peers"] = listOf(peer)
+        proxy["mtu"] = qs["mtu"]?.toIntOrNull() ?: 1280
+        proxy["udp"] = true
         return proxy
     }
 

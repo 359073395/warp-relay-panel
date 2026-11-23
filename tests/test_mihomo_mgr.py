@@ -125,6 +125,34 @@ IP-CIDR,10.0.0.0/8,DIRECT,no-resolve
                 self.assertEqual(d3["exit_ms"], 190)
                 self.assertEqual(d3["probe"]["ip"], "1.2.3.4")
 
+    def test_reload_config_and_cleanup_temp_artifacts(self) -> None:
+        from unittest import mock
+
+        self.mgr.core_dir.mkdir(parents=True, exist_ok=True)
+        stale_yaml = self.mgr.core_dir / "temp_1234.yaml"
+        stale_dir = self.mgr.core_dir / "probe_tmp_999"
+        stale_dir.mkdir(parents=True, exist_ok=True)
+        stale_yaml.write_text("x", encoding="utf-8")
+        (stale_dir / "a.txt").write_text("y", encoding="utf-8")
+        self.mgr._cleanup_temp_artifacts()
+        self.assertFalse(stale_yaml.exists())
+        self.assertFalse(stale_dir.exists())
+
+        self.mgr.active_mode = "system"
+        self.mgr.mixed_port = 17890
+        underlays = [{"name": "W1", "type": "socks5", "server": "1.1.1.1", "port": 1080}]
+        with mock.patch.object(self.mgr, "is_running", return_value=True), \
+             mock.patch.object(self.mgr, "_api_request", return_value={}) as m_api, \
+             mock.patch.object(self.mgr, "start") as m_start:
+            res = self.mgr.reload_config(
+                {"proxy_mode": "system", "route_mode": "global", "mixed_port": 17890},
+                underlays,
+                None,
+            )
+        self.assertTrue(res["reloaded"])
+        m_start.assert_not_called()
+        self.assertTrue(any("/configs?force=true" in str(c.args[0]) for c in m_api.call_args_list))
+
 
 if __name__ == "__main__":
     unittest.main()

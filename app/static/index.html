@@ -222,7 +222,7 @@
   <aside class="sidebar">
     <div style="display:flex; flex-direction:column; gap:12px;">
       <div class="brand-row">
-        <div class="brand" style="display:flex;align-items:center;gap:8px;"><img src="/starbridge.png" alt="StarBridge" style="width:22px;height:22px;border-radius:5px;" /><span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.0</small></span></div>
+        <div class="brand" style="display:flex;align-items:center;gap:8px;"><img src="/starbridge.png" alt="StarBridge" style="width:22px;height:22px;border-radius:5px;" /><span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.2</small></span></div>
         <div class="row" style="gap:4px;">
           <button class="btn xs" id="checkUpdateBtn" onclick="checkAppUpdate(false)">更新</button>
           <button class="btn xs" onclick="openSettingsModal()">⚙️ 设置</button>
@@ -1408,7 +1408,13 @@
       }
     });
     setTimeout(() => checkAppUpdate(true), 4000);
-    setInterval(() => { if (STATE && STATE.runtime && STATE.runtime.running) pollRuntime(); }, 3000);
+    setInterval(() => {
+      if (document.hidden) return;
+      if (STATE && STATE.runtime && STATE.runtime.running) pollRuntime();
+    }, 3000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && STATE && STATE.runtime && STATE.runtime.running) pollRuntime();
+    });
   </script>
 </body>
 </html>

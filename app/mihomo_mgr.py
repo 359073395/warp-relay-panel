@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import copy
 import json
+import shutil
 import socket
 import subprocess
 import threading
@@ -83,6 +84,22 @@ class MihomoManager:
         self._last_traffic_ts: float = 0.0
         self._last_up_bytes: int = 0
         self._last_down_bytes: int = 0
+        self._cleanup_temp_artifacts()
+
+    def _cleanup_temp_artifacts(self) -> None:
+        """清理异常退出遗留的临时测速配置、日志与目录。"""
+        if not self.core_dir.exists():
+            return
+        for pat in ("temp_*.yaml", "temp_*.log", "xray_bridge_*.json", "xray_bridge_*.log"):
+            for p in self.core_dir.glob(pat):
+                try:
+                    p.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        for pat in ("probe_tmp_*", "boot_tmp_*"):
+            for d in self.core_dir.glob(pat):
+                if d.is_dir():
+                    shutil.rmtree(d, ignore_errors=True)
 
     @property
     def api_base(self) -> str:
@@ -274,6 +291,100 @@ class MihomoManager:
         }
         return cfg
 
+    def _prepare_runtime_cfg(
+        self,
+        settings: dict[str, Any],
+        underlay_nodes: list[dict[str, Any]],
+        exit_node: dict[str, Any] | None,
+        extra_exit_nodes: list[dict[str, Any]] | None,
+        mixed_port: int,
+        api_port: int,
+    ) -> tuple[dict[str, Any], xray_bridge.XrayBridgeProcess | None]:
+        strategy = str(settings.get("underlay_strategy", "auto_free")).strip()
+        sel = str(settings.get("selected_underlay", "")).strip()
+        eff_underlays = underlay_nodes
+        if strategy == "manual" and sel:
+            eff_underlays = [
+                n for n in underlay_nodes
+                if str(n.get("name", "")) == sel or not xray_bridge.should_bridge_via_xray(self.core_dir, n)
+            ] or underlay_nodes
+        cfg = self.build_config(
+            settings,
+            eff_underlays,
+            exit_node,
+            extra_exit_nodes=extra_exit_nodes,
+            mixed_port=mixed_port,
+            api_port=api_port,
+        )
+        cfg["proxies"], bridge = xray_bridge.prepare_proxies_with_xray(
+            self.core_dir,
+            cfg.get("proxies") or [],
+            pick_free_port,
+            base_port=18200,
+        )
+        return cfg, bridge
+
+    def reload_config(
+        self,
+        settings: dict[str, Any],
+        underlay_nodes: list[dict[str, Any]],
+        exit_node: dict[str, Any] | None,
+        extra_exit_nodes: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """不断流热重载运行中的 Mihomo 配置；若模式或端口变更则自动回退至完整重启。"""
+        proxy_mode = settings.get("proxy_mode", "system")
+        desired_mixed = int(settings.get("mixed_port") or MIXED_PORT)
+        if (
+            not self.is_running()
+            or proxy_mode != self.active_mode
+            or (settings.get("mixed_port") is not None and desired_mixed != self.mixed_port)
+        ):
+            return self.start(settings, underlay_nodes, exit_node, extra_exit_nodes=extra_exit_nodes)
+
+        cfg, new_bridge = self._prepare_runtime_cfg(
+            settings,
+            underlay_nodes,
+            exit_node,
+            extra_exit_nodes,
+            mixed_port=self.mixed_port,
+            api_port=self.api_port,
+        )
+        try:
+            if new_bridge is not None:
+                new_bridge.start(proxy_url=win_proxy.get_active_proxy_url(self_port=self.mixed_port))
+            self.core_dir.mkdir(parents=True, exist_ok=True)
+            self.config_path.write_text(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            self._api_request(
+                "/configs?force=true",
+                method="PUT",
+                payload={"path": str(self.config_path)},
+                timeout=5.0,
+            )
+            old_bridge = self._xray_bridge
+            self._xray_bridge = new_bridge
+            if old_bridge is not None:
+                try:
+                    old_bridge.stop()
+                except Exception:
+                    pass
+            strategy = settings.get("underlay_strategy", "auto")
+            sel = str(settings.get("selected_underlay", "")).strip()
+            if strategy == "manual" and sel:
+                try:
+                    encoded = urllib.parse.quote("前置通道", safe="")
+                    self._api_request(f"/proxies/{encoded}", method="PUT", payload={"name": sel})
+                except Exception:
+                    pass
+            self.last_error = ""
+            return {"ok": True, "mode": self.active_mode, "mixed_port": self.mixed_port, "reloaded": True}
+        except Exception:
+            if new_bridge is not None:
+                try:
+                    new_bridge.stop()
+                except Exception:
+                    pass
+            return self.start(settings, underlay_nodes, exit_node, extra_exit_nodes=extra_exit_nodes)
+
     def start(
         self,
         settings: dict[str, Any],
@@ -294,19 +405,13 @@ class MihomoManager:
         self.mixed_port = pick_free_port(desired_mixed)
         self.api_port = pick_free_port(API_PORT)
 
-        cfg = self.build_config(
+        cfg, bridge = self._prepare_runtime_cfg(
             settings,
             underlay_nodes,
             exit_node,
-            extra_exit_nodes=extra_exit_nodes,
+            extra_exit_nodes,
             mixed_port=self.mixed_port,
             api_port=self.api_port,
-        )
-        cfg["proxies"], bridge = xray_bridge.prepare_proxies_with_xray(
-            self.core_dir,
-            cfg.get("proxies") or [],
-            pick_free_port,
-            base_port=18200,
         )
         if bridge is not None:
             bridge.start(proxy_url=win_proxy.get_active_proxy_url(self_port=self.mixed_port))

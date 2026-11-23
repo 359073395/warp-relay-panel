@@ -686,7 +686,7 @@ def fetch_subscription(url: str, proxy_url: str | None = None) -> list[dict[str,
     if "raw.githubusercontent.com/" in url or "github.com/" in url:
         candidates.append("https://gh-proxy.com/" + url)
 
-    proxies_to_try = [None, proxy_url] if proxy_url else [None]
+    proxies_to_try = [proxy_url, None] if proxy_url else [None]
     last_err: Exception | None = None
 
     for target in candidates:

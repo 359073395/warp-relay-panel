@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
 MIHOMO_LATEST_API = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+MIHOMO_RELEASES_ATOM = "https://github.com/MetaCubeX/mihomo/releases.atom"
 XRAY_LATEST_API = "https://api.github.com/repos/XTLS/Xray-core/releases/latest"
+XRAY_RELEASES_ATOM = "https://github.com/XTLS/Xray-core/releases.atom"
 GEO_BASE_URL = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download"
-GH_MIRRORS = ["", "https://gh-proxy.com/", "https://mirror.ghproxy.com/"]
+GH_MIRRORS = ["", "https://gh-proxy.com/"]
 
 GEO_FILES = ("geosite.dat", "geoip.dat", "geoip.metadb")
 
@@ -69,6 +72,23 @@ def _download_with_mirrors(
     raise RuntimeError(f"下载失败 ({url}): {last_err}")
 
 
+def _resolve_tag_via_atom(atom_url: str, proxy_url: str | None = None) -> str | None:
+    urls: list[tuple[str, str | None]] = []
+    if proxy_url:
+        urls.append((atom_url, proxy_url))
+    for prefix in GH_MIRRORS:
+        urls.append((f"{prefix}{atom_url}" if prefix else atom_url, None))
+    for u, px in urls:
+        try:
+            raw = _open_url(u, proxy_url=px, timeout=12.0).decode("utf-8", errors="ignore")
+            m = re.search(r"releases/tag/(v?\d+(?:\.\d+)+(?:-[\w.]+)?)", raw)
+            if m:
+                return m.group(1)
+        except Exception:
+            continue
+    return None
+
+
 def _resolve_mihomo_zip_url(proxy_url: str | None = None) -> tuple[str, str]:
     """查询最新 Mihomo Windows amd64 发行版 zip 地址与版本号。"""
     proxies_to_try = [proxy_url, None] if proxy_url else [None]
@@ -83,6 +103,10 @@ def _resolve_mihomo_zip_url(proxy_url: str | None = None) -> tuple[str, str]:
             last_err = exc
 
     if not release:
+        atom_tag = _resolve_tag_via_atom(MIHOMO_RELEASES_ATOM, proxy_url=proxy_url)
+        if atom_tag:
+            dl = f"https://github.com/MetaCubeX/mihomo/releases/download/{atom_tag}/mihomo-windows-amd64-compatible-{atom_tag}.zip"
+            return dl, atom_tag
         raise RuntimeError(f"获取 Mihomo 最新版本信息失败: {last_err}")
 
     tag = str(release.get("tag_name") or "latest")
@@ -119,6 +143,10 @@ def _resolve_xray_zip_url(proxy_url: str | None = None) -> tuple[str, str]:
             last_err = exc
 
     if not release:
+        atom_tag = _resolve_tag_via_atom(XRAY_RELEASES_ATOM, proxy_url=proxy_url)
+        if atom_tag:
+            dl = f"https://github.com/XTLS/Xray-core/releases/download/{atom_tag}/Xray-windows-64.zip"
+            return dl, atom_tag
         raise RuntimeError(f"获取 Xray-core 最新版本信息失败: {last_err}")
 
     tag = str(release.get("tag_name") or "latest")

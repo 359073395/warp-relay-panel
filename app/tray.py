@@ -13,6 +13,7 @@ _WM_USER = 0x0400
 _WM_TRAYICON = _WM_USER + 20
 _WM_COMMAND = 0x0111
 _WM_DESTROY = 0x0002
+_WM_LBUTTONUP = 0x0202
 _WM_LBUTTONDBLCLK = 0x0203
 _WM_RBUTTONUP = 0x0205
 
@@ -180,7 +181,7 @@ class TrayIcon:
 
             def _wnd_proc(hwnd: wintypes.HWND, msg: int, wparam: int, lparam: int) -> int:
                 if msg == _WM_TRAYICON:
-                    if lparam == _WM_LBUTTONDBLCLK:
+                    if lparam in (_WM_LBUTTONUP, _WM_LBUTTONDBLCLK):
                         threading.Thread(target=self.on_show, daemon=True).start()
                     elif lparam == _WM_RBUTTONUP:
                         self._show_menu(hwnd)

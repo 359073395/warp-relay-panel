@@ -126,7 +126,7 @@ def register_warp_account(proxy_url: str | None = None) -> dict[str, Any]:
         "https://api.cloudflareclient.com/v0a4005/reg",
         "https://edge-client-api.vercel.app/v0a4005/reg",
     ]
-    proxies_to_try = [None, proxy_url] if proxy_url else [None]
+    proxies_to_try = [proxy_url, None] if proxy_url else [None]
 
     last_err: Exception | None = None
     for base in endpoints:

@@ -251,7 +251,7 @@
   <div class="topbar">
     <div class="brand">
       <img src="starbridge.png" alt="" />
-      <span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.0</small></span>
+      <span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.2</small></span>
     </div>
     <div class="row" style="gap:6px;">
       <div class="seg" id="routeModeSeg">
@@ -441,7 +441,7 @@
       document.getElementById('powerSub').textContent = connecting
         ? '正在启动双核并建立 VPN 隧道...'
         : (running
-          ? `已连接 · ${rt.active_hop1 || '直连'} · 上行 ${fmtBytes(rt.upload_total)} · 下行 ${fmtBytes(rt.download_total)}`
+          ? `已连接 · ${rt.active_hop1 || '直连'} · ↑${fmtBytes(rt.up_bps)}/s ↓${fmtBytes(rt.down_bps)}/s`
           : (lastErr ? `上次失败：${lastErr}` : '未连接 · 点击一键启动手机加速'));
     }
 
@@ -864,15 +864,21 @@
       }
     });
     setTimeout(() => checkAppUpdate(true), 3500);
-    // 仅轮询轻量运行态与流量，绝不重建下方节点列表 DOM，避免吞掉用户点击
-    setInterval(async () => {
+    // 仅轮询轻量运行态与流量，切后台/息屏时自动暂停，绝不重建下方节点列表 DOM
+    async function pollRuntimeOnce() {
       if (_connectingLock || !STATE || !STATE.runtime || !STATE.runtime.running) return;
       try {
         const res = await callNative('runtime');
         STATE.runtime = res.runtime || {};
         renderRuntimeOnly(STATE.runtime, res.last_error);
       } catch (e) {}
+    }
+    setInterval(() => {
+      if (!document.hidden) pollRuntimeOnce();
     }, 2500);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) pollRuntimeOnce();
+    });
   </script>
 </body>
 </html>

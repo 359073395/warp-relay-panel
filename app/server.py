@@ -87,6 +87,7 @@ class PanelStore:
         self.vpngate_file = self.data_dir / "vpngate_nodes.json"
 
         self._lock = threading.Lock()
+        self._connect_lock = threading.Lock()
         self._smart_lock = threading.Lock()
         self._scheduler_started = False
         self.mgr = mihomo_mgr.MihomoManager(self.base_dir)
@@ -723,17 +724,83 @@ class PanelStore:
         pub_count = 0
         warnings: list[str] = []
 
+        warp_err = ""
+        pub_err = ""
+
         try:
             warp_nodes = self.ensure_warp_nodes(use_awg=use_awg, rescan=True, probe=False)
             warp_count = len(warp_nodes)
         except Exception as exc:
-            warnings.append(f"WARP: {exc}")
+            warp_err = f"WARP: {exc}"
 
         try:
             pub_res = self.refresh_public_backups()
             pub_count = int(pub_res.get("count", 0))
         except Exception as exc:
-            warnings.append(f"公益: {exc}")
+            pub_err = f"公益: {exc}"
+
+        # 双向借道引导：若一方直连拉取失败，借助另一方临时通道引导拉取
+        if pub_count == 0 and warp_count > 0 and self.mgr.exe_path.exists():
+            try:
+                cfg_boot = self.mgr.build_config(
+                    {"proxy_mode": "system", "route_mode": "global", "exit_mode": "direct_underlay", "underlay_strategy": "warp_only"},
+                    warp_nodes,
+                    None,
+                )
+
+                def _boot_pub(_base_url: str, mixed: int) -> list[dict[str, Any]]:
+                    return node_parser.fetch_subscription(
+                        PUBLIC_REMOTE_URL,
+                        proxy_url=f"http://127.0.0.1:{mixed}",
+                    )
+
+                raw_list = self.mgr.run_temp_mihomo(cfg_boot, _boot_pub)
+                if raw_list:
+                    items = [
+                        {"id": f"pub-{i}", "name": f"公益-{p.get('name', i)}", "proxy": p}
+                        for i, p in enumerate(raw_list[:15], start=1)
+                    ]
+                    for item in items:
+                        item["proxy"]["name"] = item["name"]
+                    self._write_json(self.public_backup_file, items)
+                    pub_count = len(items)
+                    pub_err = ""
+            except Exception:
+                pass
+
+        if warp_count == 0 and pub_count > 0 and self.mgr.exe_path.exists():
+            try:
+                pub_proxies = [item["proxy"] for item in self.get_public_backups() if isinstance(item, dict) and "proxy" in item]
+                if pub_proxies:
+                    cfg_boot = self.mgr.build_config(
+                        {"proxy_mode": "system", "route_mode": "global", "exit_mode": "direct_underlay", "underlay_strategy": "public_only"},
+                        pub_proxies,
+                        None,
+                    )
+
+                    def _boot_warp(base_url: str, mixed: int) -> None:
+                        proxy_names = [p["name"] for p in cfg_boot["proxies"][:10]]
+                        for pn in proxy_names[:5]:
+                            try:
+                                encoded = urllib.parse.quote("前置通道", safe="")
+                                self.mgr._api_request(f"/proxies/{encoded}", method="PUT", payload={"name": pn}, timeout=2.0, base_url=base_url)
+                                warp_client.ensure_warp_account(self.warp_account_file, proxy_url=f"http://127.0.0.1:{mixed}")
+                                return
+                            except Exception:
+                                continue
+
+                    self.mgr.run_temp_mihomo(cfg_boot, _boot_warp)
+                    if self.warp_account_file.exists():
+                        warp_nodes = self.ensure_warp_nodes(use_awg=use_awg, rescan=True, probe=False)
+                        warp_count = len(warp_nodes)
+                        warp_err = ""
+            except Exception:
+                pass
+
+        if warp_err:
+            warnings.append(warp_err)
+        if pub_err:
+            warnings.append(pub_err)
 
         if warp_count == 0 and pub_count == 0:
             raise RuntimeError("；".join(warnings) or "未能拉取到任何免费节点")
@@ -938,71 +1005,75 @@ class PanelStore:
 
         threading.Thread(target=_loop, daemon=True).start()
 
-    def connect(self, smart_pick: bool = False) -> dict[str, Any]:
-        settings = self.get_settings()
-        smart_best_underlay = ""
-        if smart_pick and settings.get("smart_auto_select"):
-            s_res = self.smart_select_best(apply_if_running=False)
-            smart_best_underlay = str(s_res.get("best_underlay") or "")
+    def connect(self, smart_pick: bool = False, prefer_reload: bool = False) -> dict[str, Any]:
+        with self._connect_lock:
             settings = self.get_settings()
+            smart_best_underlay = ""
+            if smart_pick and settings.get("smart_auto_select"):
+                s_res = self.smart_select_best(apply_if_running=False)
+                smart_best_underlay = str(s_res.get("best_underlay") or "")
+                settings = self.get_settings()
 
-        strategy = settings.get("underlay_strategy", "auto_free")
-        emode = settings.get("exit_mode", "direct_underlay")
-        if strategy == "direct" and emode == "direct_underlay":
-            raise ValueError("第一跳设为“直连”时，请开启第二跳并选择一个落地节点。")
+            strategy = settings.get("underlay_strategy", "auto_free")
+            emode = settings.get("exit_mode", "direct_underlay")
+            if strategy == "direct" and emode == "direct_underlay":
+                raise ValueError("第一跳设为“直连”时，请开启第二跳并选择一个落地节点。")
 
-        underlays = self.assemble_underlays(settings)
-        if emode == "vpngate" and not self.get_vpngate_nodes():
-            self.refresh_vpngate()
-        exit_node = self.get_active_exit_node(settings)
-        if emode == "residential" and exit_node is None:
-            raise ValueError("已开启第二跳“我的私人住宅 IP”，请先添加一个住宅 IP。")
-        if emode == "vpngate" and exit_node is None:
-            raise ValueError("VPN Gate 节点列表为空，请先刷新家宽列表。")
+            underlays = self.assemble_underlays(settings)
+            if emode == "vpngate" and not self.get_vpngate_nodes():
+                self.refresh_vpngate()
+            exit_node = self.get_active_exit_node(settings)
+            if emode == "residential" and exit_node is None:
+                raise ValueError("已开启第二跳“我的私人住宅 IP”，请先添加一个住宅 IP。")
+            if emode == "vpngate" and exit_node is None:
+                raise ValueError("VPN Gate 节点列表为空，请先刷新家宽列表。")
 
-        extra_exits: list[dict[str, Any]] = []
-        cand_id_by_ob_name: dict[str, str] = {}
-        if emode == "vpngate" and exit_node is not None:
-            sel_id = settings.get("selected_vpngate_id", "")
-            vg_nodes = self.get_vpngate_nodes()
-            res_cands = [n for n in vg_nodes if n.get("line_class") == "residential" and n.get("id") != sel_id]
-            dc_cands = [n for n in vg_nodes if n.get("line_class") != "residential" and n.get("id") != sel_id]
-            for idx, cand in enumerate((res_cands + dc_cands)[:5], start=1):
-                ob = vpngate.build_mihomo_openvpn_outbound(cand)
-                ob["name"] = f"{cand['name']} (备{idx})"
-                extra_exits.append(ob)
-                cand_id_by_ob_name[f"落地-{ob['name']}"] = str(cand["id"])
+            extra_exits: list[dict[str, Any]] = []
+            cand_id_by_ob_name: dict[str, str] = {}
+            if emode == "vpngate" and exit_node is not None:
+                sel_id = settings.get("selected_vpngate_id", "")
+                vg_nodes = self.get_vpngate_nodes()
+                res_cands = [n for n in vg_nodes if n.get("line_class") == "residential" and n.get("id") != sel_id]
+                dc_cands = [n for n in vg_nodes if n.get("line_class") != "residential" and n.get("id") != sel_id]
+                for idx, cand in enumerate((res_cands + dc_cands)[:5], start=1):
+                    ob = vpngate.build_mihomo_openvpn_outbound(cand)
+                    ob["name"] = f"{cand['name']} (备{idx})"
+                    extra_exits.append(ob)
+                    cand_id_by_ob_name[f"落地-{ob['name']}"] = str(cand["id"])
 
-        patched_settings = dict(settings)
-        if emode == "vpngate":
-            patched_settings["exit_mode"] = "residential"
-        res = self.mgr.start(patched_settings, underlays, exit_node, extra_exit_nodes=extra_exits)
-        if smart_best_underlay and strategy != "direct":
-            self.mgr.select_underlay(smart_best_underlay)
+            patched_settings = dict(settings)
+            if emode == "vpngate":
+                patched_settings["exit_mode"] = "residential"
+            if prefer_reload and self.mgr.is_running():
+                res = self.mgr.reload_config(patched_settings, underlays, exit_node, extra_exit_nodes=extra_exits)
+            else:
+                res = self.mgr.start(patched_settings, underlays, exit_node, extra_exit_nodes=extra_exits)
+            if smart_best_underlay and strategy != "direct":
+                self.mgr.select_underlay(smart_best_underlay)
 
-        if emode == "vpngate" and exit_node is not None:
-            primary_proxy_name = f"落地-{exit_node.get('name', '住宅IP')}"
-            ms = self.mgr.test_node_delay(primary_proxy_name, timeout_ms=7000)
-            if ms is None and cand_id_by_ob_name:
-                def _test_alt(pname: str) -> tuple[str, int | None]:
-                    return pname, self.mgr.test_node_delay(pname, timeout_ms=7000)
+            if emode == "vpngate" and exit_node is not None:
+                primary_proxy_name = f"落地-{exit_node.get('name', '住宅IP')}"
+                ms = self.mgr.test_node_delay(primary_proxy_name, timeout_ms=7000)
+                if ms is None and cand_id_by_ob_name:
+                    def _test_alt(pname: str) -> tuple[str, int | None]:
+                        return pname, self.mgr.test_node_delay(pname, timeout_ms=7000)
 
-                best_name = ""
-                best_ms = 999999
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-                    for pname, alt_ms in pool.map(_test_alt, list(cand_id_by_ob_name.keys())):
-                        if alt_ms is not None and alt_ms < best_ms:
-                            best_ms = alt_ms
-                            best_name = pname
-                if best_name:
-                    self.mgr.select_exit(best_name)
-                    new_id = cand_id_by_ob_name[best_name]
-                    self.save_settings({"selected_vpngate_id": new_id})
-                    res["auto_switched"] = best_name
-                    res["delay_ms"] = best_ms
-            elif ms is not None:
-                res["delay_ms"] = ms
-        return res
+                    best_name = ""
+                    best_ms = 999999
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+                        for pname, alt_ms in pool.map(_test_alt, list(cand_id_by_ob_name.keys())):
+                            if alt_ms is not None and alt_ms < best_ms:
+                                best_ms = alt_ms
+                                best_name = pname
+                    if best_name:
+                        self.mgr.select_exit(best_name)
+                        new_id = cand_id_by_ob_name[best_name]
+                        self.save_settings({"selected_vpngate_id": new_id})
+                        res["auto_switched"] = best_name
+                        res["delay_ms"] = best_ms
+                elif ms is not None:
+                    res["delay_ms"] = ms
+            return res
 
     def disconnect(self) -> dict[str, Any]:
         self.mgr.stop()
@@ -1018,7 +1089,7 @@ class PanelStore:
         new_s = self.save_settings({"underlay_strategy": "manual", "selected_underlay": target})
         if self.mgr.is_running():
             if not self.mgr.select_underlay(target):
-                self.connect()
+                self.connect(prefer_reload=True)
         return {"ok": True, "settings": new_s}
 
     def add_custom_underlays(self, text: str) -> dict[str, Any]:
@@ -1435,9 +1506,9 @@ def create_handler(store: PanelStore) -> type[BaseHTTPRequestHandler]:
                     }
                     if store.mgr.is_running() and body.get("auto_apply", True) and (routing_keys & set(body.keys())):
                         if body.get("sync", False):
-                            store.connect()
+                            store.connect(prefer_reload=True)
                         else:
-                            threading.Thread(target=lambda: store.connect(), daemon=True).start()
+                            threading.Thread(target=lambda: store.connect(prefer_reload=True), daemon=True).start()
                     self._send_json({"ok": True, "settings": new_s})
                 elif path == "/api/connect":
                     self._send_json(store.connect(smart_pick=bool(body.get("smart_pick", False))))

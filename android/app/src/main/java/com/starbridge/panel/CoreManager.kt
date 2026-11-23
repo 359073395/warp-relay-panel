@@ -57,6 +57,10 @@ class CoreManager(private val context: Context) {
     private var xrayProc: Process? = null
     private var lastSmartSummary = ""
     private var lastSmartTime = ""
+    private val devNull = File("/dev/null")
+    @Volatile private var lastTrafficTs = 0L
+    @Volatile private var lastUpBytes = 0L
+    @Volatile private var lastDownBytes = 0L
 
     private val directHttp = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
@@ -65,8 +69,24 @@ class CoreManager(private val context: Context) {
 
     init {
         ensureGeoAssets()
+        cleanupTempArtifacts()
         if (!stateFile.exists()) {
             saveState(defaultState())
+        }
+    }
+
+    private fun cleanupTempArtifacts() {
+        coreDir.listFiles()?.forEach { f ->
+            val n = f.name
+            if (f.isDirectory && (n.startsWith("boot_tmp_") || n.startsWith("probe_tmp_"))) {
+                runCatching { f.deleteRecursively() }
+            }
+        }
+    }
+
+    private fun truncateLogIfNeeded(file: File, maxBytes: Long = 1048576L) {
+        if (file.isFile && file.length() > maxBytes) {
+            runCatching { file.writeText("") }
         }
     }
 
@@ -284,6 +304,8 @@ class CoreManager(private val context: Context) {
                     .put("mixed_port", MIXED_PORT)
                     .put("active_hop1", live.optString("active_hop1", ""))
                     .put("active_exit", live.optString("active_exit", ""))
+                    .put("up_bps", live.optLong("up_bps", 0))
+                    .put("down_bps", live.optLong("down_bps", 0))
                     .put("upload_total", live.optLong("upload_total", 0))
                     .put("download_total", live.optLong("download_total", 0))
             )
@@ -511,6 +533,8 @@ class CoreManager(private val context: Context) {
                     .put("mixed_port", MIXED_PORT)
                     .put("active_hop1", live.optString("active_hop1", ""))
                     .put("active_exit", live.optString("active_exit", ""))
+                    .put("up_bps", live.optLong("up_bps", 0))
+                    .put("down_bps", live.optLong("down_bps", 0))
                     .put("upload_total", live.optLong("upload_total", 0))
                     .put("download_total", live.optLong("download_total", 0))
             )
@@ -558,6 +582,36 @@ class CoreManager(private val context: Context) {
         return getStateSnapshot()
     }
 
+    private fun buildHttpClients(proxyFirst: Boolean = true): List<OkHttpClient> {
+        val list = ArrayList<OkHttpClient>()
+        if (proxyFirst && running) {
+            list.add(
+                directHttp.newBuilder()
+                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MIXED_PORT)))
+                    .build()
+            )
+        }
+        list.add(directHttp)
+        return list
+    }
+
+    private fun fetchTextWithFallback(url: String, userAgent: String = "ClashMeta/1.18"): String {
+        var lastErr: Exception? = null
+        for (cli in buildHttpClients(proxyFirst = true)) {
+            try {
+                val req = Request.Builder().url(url).header("User-Agent", userAgent).build()
+                cli.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) error("HTTP ${r.code}")
+                    val body = r.body?.string() ?: ""
+                    if (body.isNotEmpty()) return body
+                }
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        throw RuntimeException("订阅拉取失败: ${lastErr?.message ?: "无响应"}")
+    }
+
     private fun fetchPublicNodes(proxyPort: Int? = null): List<Map<String, Any?>> {
         val http = if (proxyPort != null && proxyPort > 0) {
             directHttp.newBuilder()
@@ -594,7 +648,11 @@ class CoreManager(private val context: Context) {
         return try {
             if (bridged.xrayConfigJson != null && xrayExe.isFile) {
                 val xf = File(tmpDir, "xray.json").apply { writeText(bridged.xrayConfigJson) }
-                xProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath).directory(coreDir).start()
+                xProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
+                    .directory(coreDir)
+                    .redirectErrorStream(true)
+                    .redirectOutput(devNull)
+                    .start()
                 Thread.sleep(200)
             }
             val cfg = linkedMapOf<String, Any?>(
@@ -610,7 +668,11 @@ class CoreManager(private val context: Context) {
                 "rules" to listOf("MATCH,BOOT")
             )
             val cf = File(tmpDir, "config.yaml").apply { writeText(buildYamlStr(cfg)) }
-            mProc = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath).directory(coreDir).start()
+            mProc = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath)
+                .directory(coreDir)
+                .redirectErrorStream(true)
+                .redirectOutput(devNull)
+                .start()
             if (!waitForPort(tempMixed, 4500)) return null
             block(tempMixed)
         } catch (_: Exception) {
@@ -627,23 +689,47 @@ class CoreManager(private val context: Context) {
         var acct = st.getJSONObject("warp_account")
         var warpErr: Exception? = null
         if (acct.optString("private_key").isBlank()) {
-            try {
-                acct = WarpClient.registerAccount()
-                st.put("warp_account", acct)
-            } catch (e: Exception) {
-                warpErr = e
+            var regOk = false
+            if (running) {
+                runCatching {
+                    acct = WarpClient.registerAccount(proxyPort = MIXED_PORT)
+                    st.put("warp_account", acct)
+                    regOk = true
+                }
+            }
+            if (!regOk) {
+                try {
+                    acct = WarpClient.registerAccount()
+                    st.put("warp_account", acct)
+                } catch (e: Exception) {
+                    warpErr = e
+                }
             }
         }
-        var eps = st.getJSONArray("warp_endpoints")
-        if (eps.length() == 0) {
-            val sampled = WarpClient.sampleEndpoints(12)
-            eps = JSONArray()
-            sampled.forEach { eps.put(it) }
-            st.put("warp_endpoints", eps)
+        // 保留最多 4 个已验证可用的低延迟 WARP 节点，其余重新随机抽样换新 IP
+        val oldEps = st.getJSONArray("warp_endpoints")
+        val keptEps = (0 until oldEps.length())
+            .map { oldEps.getJSONObject(it) }
+            .filter { it.optInt("delay_ms", 0) > 0 }
+            .sortedBy { -(it.optDouble("speed_mbps", 0.0)) * 1000.0 + it.optInt("delay_ms", 99999) }
+            .take(4)
+        val eps = JSONArray()
+        val seenKeys = HashSet<String>()
+        for (k in keptEps) {
+            val key = "${k.optString("ip")}:${k.optInt("port")}"
+            if (seenKeys.add(key)) eps.put(k)
         }
+        val freshSampled = WarpClient.sampleEndpoints(16)
+        for (item in freshSampled) {
+            if (eps.length() >= 12) break
+            val key = "${item.optString("ip")}:${item.optInt("port")}"
+            if (seenKeys.add(key)) eps.put(item)
+        }
+        st.put("warp_endpoints", eps)
 
-        // 先直连 + 镜像源拉取公益节点
-        var parsedPub = fetchPublicNodes()
+        // 先按运行状态优先走本地代理，再直连/镜像源拉取公益节点
+        var parsedPub = if (running) fetchPublicNodes(MIXED_PORT) else emptyList()
+        if (parsedPub.isEmpty()) parsedPub = fetchPublicNodes()
         // 若公益节点未拉到但 WARP 已可用，用临时 WARP 通道拉取公益节点
         if (parsedPub.isEmpty() && acct.optString("private_key").isNotBlank()) {
             val epList = (0 until eps.length()).map { eps.getJSONObject(it) }
@@ -724,11 +810,7 @@ class CoreManager(private val context: Context) {
     }
 
     fun addUnderlaySub(url: String, name: String = ""): JSONObject {
-        val req = Request.Builder().url(url.trim()).header("User-Agent", "ClashMeta/1.18").build()
-        val body = directHttp.newCall(req).execute().use { r ->
-            if (!r.isSuccessful) error("订阅拉取失败 HTTP ${r.code}")
-            r.body?.string() ?: ""
-        }
+        val body = fetchTextWithFallback(url.trim())
         val nodes = NodeParser.parseSubscriptionContent(body)
         if (nodes.isEmpty()) error("未从订阅中解析到有效节点")
         val label = name.ifBlank { "订阅-${UUID.randomUUID().toString().take(4)}" }
@@ -775,11 +857,7 @@ class CoreManager(private val context: Context) {
             val url = sub.optString("url")
             val label = sub.optString("name", "订阅")
             if (url.isBlank()) continue
-            val req = Request.Builder().url(url).header("User-Agent", "ClashMeta/1.18").build()
-            val body = directHttp.newCall(req).execute().use { r ->
-                if (!r.isSuccessful) error("订阅拉取失败 HTTP ${r.code}")
-                r.body?.string() ?: ""
-            }
+            val body = fetchTextWithFallback(url)
             val nodes = NodeParser.parseSubscriptionContent(body)
             if (nodes.isNotEmpty()) {
                 val nodeArr = JSONArray()
@@ -884,6 +962,8 @@ class CoreManager(private val context: Context) {
                 for (j in 0 until nodes.length()) {
                     val item = nodes.getJSONObject(j)
                     val px = jsonToMap(item)
+                    px.remove("delay_ms")
+                    px.remove("speed_mbps")
                     result.add(Triple("sub:${item.optString("name")}", px, item))
                 }
             }
@@ -980,6 +1060,8 @@ class CoreManager(private val context: Context) {
                 val xf = File(tempDir, "xray.json").apply { writeText(bridged.xrayConfigJson) }
                 tmpXray = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
                     .directory(coreDir)
+                    .redirectErrorStream(true)
+                    .redirectOutput(devNull)
                     .start()
                 Thread.sleep(250)
             }
@@ -1000,6 +1082,8 @@ class CoreManager(private val context: Context) {
             val cf = File(tempDir, "config.yaml").apply { writeText(buildYamlStr(cfg)) }
             tmpMihomo = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath)
                 .directory(coreDir)
+                .redirectErrorStream(true)
+                .redirectOutput(devNull)
                 .start()
 
             if (!waitForPort(tempCtrl, 5000)) error("临时测速内核启动超时")
@@ -1123,6 +1207,15 @@ class CoreManager(private val context: Context) {
             val next = JSONArray()
             list.forEach { next.put(it) }
             st.put(key, next)
+        }
+        val subs = st.getJSONArray("underlay_subs")
+        for (i in 0 until subs.length()) {
+            val sub = subs.getJSONObject(i)
+            val nodes = sub.optJSONArray("nodes") ?: continue
+            val sorted = (0 until nodes.length()).map { nodes.getJSONObject(it) }.sortedBy { rank(it) }
+            val nextNodes = JSONArray()
+            sorted.forEach { nextNodes.put(it) }
+            sub.put("nodes", nextNodes)
         }
     }
 
@@ -1282,9 +1375,11 @@ class CoreManager(private val context: Context) {
         if (xrayJson != null && xrayExe.isFile) {
             runCatching { xrayProc?.destroy() }
             val xf = File(coreDir, "xray.json").apply { writeText(xrayJson) }
+            val xlog = File(coreDir, "xray.log").also { truncateLogIfNeeded(it) }
             xrayProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
                 .directory(coreDir)
                 .redirectErrorStream(true)
+                .redirectOutput(xlog)
                 .start()
             Thread.sleep(200)
         } else {
@@ -1316,14 +1411,16 @@ class CoreManager(private val context: Context) {
 
             if (xrayJson != null && xrayExe.isFile) {
                 val xf = File(coreDir, "xray.json").apply { writeText(xrayJson) }
+                val xlog = File(coreDir, "xray.log").also { truncateLogIfNeeded(it) }
                 xrayProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
                     .directory(coreDir)
                     .redirectErrorStream(true)
+                    .redirectOutput(xlog)
                     .start()
                 Thread.sleep(200)
             }
 
-            val logFile = File(coreDir, "core.log")
+            val logFile = File(coreDir, "core.log").also { truncateLogIfNeeded(it) }
             mihomoProc = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath)
                 .directory(coreDir)
                 .redirectErrorStream(true)
@@ -1334,6 +1431,9 @@ class CoreManager(private val context: Context) {
                 stopCore()
                 error("Mihomo 启动超时，请查看 core.log")
             }
+            lastTrafficTs = System.currentTimeMillis()
+            lastUpBytes = 0L
+            lastDownBytes = 0L
             running = true
         } finally {
             connecting = false
@@ -1343,6 +1443,9 @@ class CoreManager(private val context: Context) {
     fun stopCore() {
         running = false
         connecting = false
+        lastTrafficTs = 0L
+        lastUpBytes = 0L
+        lastDownBytes = 0L
         runCatching { mihomoProc?.destroy() }
         runCatching { xrayProc?.destroy() }
         mihomoProc = null
@@ -1361,8 +1464,23 @@ class CoreManager(private val context: Context) {
             val creq = Request.Builder().url("http://127.0.0.1:$CTRL_PORT/connections").build()
             directHttp.newCall(creq).execute().use { r ->
                 val c = JSONObject(r.body?.string() ?: "{}")
-                out.put("upload_total", c.optLong("uploadTotal", 0))
-                out.put("download_total", c.optLong("downloadTotal", 0))
+                val upTotal = c.optLong("uploadTotal", 0)
+                val downTotal = c.optLong("downloadTotal", 0)
+                val now = System.currentTimeMillis()
+                val dt = if (lastTrafficTs > 0L) (now - lastTrafficTs) / 1000.0 else 0.0
+                var upBps = 0L
+                var downBps = 0L
+                if (dt >= 0.3 && upTotal >= lastUpBytes && downTotal >= lastDownBytes) {
+                    upBps = ((upTotal - lastUpBytes) / dt).toLong()
+                    downBps = ((downTotal - lastDownBytes) / dt).toLong()
+                }
+                lastTrafficTs = now
+                lastUpBytes = upTotal
+                lastDownBytes = downTotal
+                out.put("up_bps", upBps)
+                out.put("down_bps", downBps)
+                out.put("upload_total", upTotal)
+                out.put("download_total", downTotal)
             }
         }
         return out
