@@ -4,9 +4,11 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -14,17 +16,30 @@ import android.webkit.WebView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pendingConnectReqId: String? = null
+    private var pendingApkFile: File? = null
+
+    private val installPermLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        val apk = pendingApkFile
+        pendingApkFile = null
+        if (apk != null && apk.exists() && packageManager.canRequestPackageInstalls()) {
+            launchApkInstaller(apk)
+        }
+    }
 
     private val vpnPermLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -83,6 +98,24 @@ class MainActivity : AppCompatActivity() {
         startService(intent)
     }
 
+    private fun launchApkInstaller(apkFile: File) {
+        if (!packageManager.canRequestPackageInstalls()) {
+            pendingApkFile = apkFile
+            val permIntent = Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:$packageName")
+            )
+            installPermLauncher.launch(permIntent)
+            return
+        }
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+    }
+
     private fun resolveJs(reqId: String, ok: Boolean, jsonStr: String) {
         val quoted = JSONObject.quote(jsonStr)
         val okFlag = if (ok) "true" else "false"
@@ -122,6 +155,20 @@ class MainActivity : AppCompatActivity() {
                         "refresh_sub" -> {
                             val res = core.refreshUnderlaySubs(body.optString("id", ""))
                             resolveJs(reqId, true, res.toString())
+                        }
+                        "check_update" -> {
+                            val res = core.checkUpdate()
+                            resolveJs(reqId, true, res.toString())
+                        }
+                        "apply_update" -> {
+                            val apk = core.downloadUpdateApk(body.optString("apk_url", ""))
+                            val needPerm = !packageManager.canRequestPackageInstalls()
+                            runOnUiThread { launchApkInstaller(apk) }
+                            resolveJs(
+                                reqId,
+                                true,
+                                JSONObject().put("ok", true).put("need_perm", needPerm).toString()
+                            )
                         }
                         "settings" -> {
                             val res = core.updateSettings(body)

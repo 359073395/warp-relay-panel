@@ -240,6 +240,20 @@ class TestServerStoreAndHttp(unittest.TestCase):
         st1 = self._req("/api/state")
         self.assertIn("Node1", st1["smart_status"]["last_summary"])
 
+    def test_update_check_endpoint(self) -> None:
+        from unittest import mock
+        with mock.patch("app.updater.check_latest_release", return_value={
+            "ok": True,
+            "current_version": "2.2.0",
+            "latest_version": "2.3.0",
+            "has_update": True,
+            "win_setup_url": "https://example.com/StarBridge-Setup.exe",
+        }):
+            res = self._req("/api/update/check")
+        self.assertTrue(res["ok"])
+        self.assertTrue(res["has_update"])
+        self.assertEqual(res["latest_version"], "2.3.0")
+
 
 if __name__ == "__main__":
     unittest.main()

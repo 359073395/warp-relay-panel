@@ -29,6 +29,8 @@ class CoreManager(private val context: Context) {
         const val CTRL_PORT = 19091
         private const val PUBLIC_REMOTE_URL =
             "https://raw.githubusercontent.com/359073395/subs-check-auto/main/subs/all.yaml"
+        private const val GITHUB_LATEST_API =
+            "https://api.github.com/repos/359073395/warp-relay-panel/releases/latest"
         private val GH_MIRRORS = listOf("", "https://gh-proxy.com/", "https://mirror.ghproxy.com/", "https://ghfast.top/")
         private val GEO_FILES = listOf("geosite.dat", "geoip.dat", "geoip.metadb")
     }
@@ -46,6 +48,9 @@ class CoreManager(private val context: Context) {
     @Volatile private var cachedState: JSONObject? = null
     @Volatile var running = false
     @Volatile var connecting = false
+    @Volatile var updateDownloading = false
+    @Volatile var updateProgress = 0
+    @Volatile var updateMessage = ""
     private var mihomoProc: Process? = null
     private var xrayProc: Process? = null
     private var lastSmartSummary = ""
@@ -259,6 +264,7 @@ class CoreManager(private val context: Context) {
 
         val live = if (running) getLiveStatus() else JSONObject()
         return JSONObject()
+            .put("app_version", getAppVersion())
             .put("settings", settings)
             .put(
                 "core_status",
@@ -299,6 +305,166 @@ class CoreManager(private val context: Context) {
                     .put("last_summary", lastSmartSummary)
                     .put("last_time", lastSmartTime)
             )
+            .put(
+                "update_state",
+                JSONObject()
+                    .put("downloading", updateDownloading)
+                    .put("progress", updateProgress)
+                    .put("message", updateMessage)
+            )
+    }
+
+    fun getAppVersion(): String {
+        return runCatching {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "2.2.0"
+        }.getOrDefault("2.2.0")
+    }
+
+    private fun isNewerVersion(remote: String, current: String): Boolean {
+        val r = Regex("\\d+").findAll(remote).map { it.value.toIntOrNull() ?: 0 }.toList()
+        val c = Regex("\\d+").findAll(current).map { it.value.toIntOrNull() ?: 0 }.toList()
+        val maxLen = maxOf(r.size, c.size)
+        for (i in 0 until maxLen) {
+            val rv = r.getOrElse(i) { 0 }
+            val cv = c.getOrElse(i) { 0 }
+            if (rv != cv) return rv > cv
+        }
+        return false
+    }
+
+    fun checkUpdate(): JSONObject {
+        val clients = ArrayList<OkHttpClient>()
+        if (running) {
+            clients.add(
+                directHttp.newBuilder()
+                    .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MIXED_PORT)))
+                    .build()
+            )
+        }
+        clients.add(directHttp)
+        var data: JSONObject? = null
+        var lastErr: Exception? = null
+        for (cli in clients) {
+            try {
+                val req = Request.Builder()
+                    .url(GITHUB_LATEST_API)
+                    .header("User-Agent", "StarBridge/${getAppVersion()}")
+                    .header("Accept", "application/vnd.github+json")
+                    .build()
+                cli.newCall(req).execute().use { r ->
+                    if (!r.isSuccessful) error("HTTP ${r.code}")
+                    data = JSONObject(r.body?.string() ?: "{}")
+                }
+                break
+            } catch (e: Exception) {
+                lastErr = e
+            }
+        }
+        val rel = data ?: throw RuntimeException("检查更新失败: ${lastErr?.message}")
+        val tag = rel.optString("tag_name", "").trim()
+        val latest = tag.removePrefix("v").removePrefix("V")
+        val current = getAppVersion()
+        var apkUrl = ""
+        val assets = rel.optJSONArray("assets") ?: JSONArray()
+        for (i in 0 until assets.length()) {
+            val a = assets.getJSONObject(i)
+            if (a.optString("name") == "StarBridge-android-arm64.apk") {
+                apkUrl = a.optString("browser_download_url")
+                break
+            }
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("current_version", current)
+            .put("latest_version", latest)
+            .put("has_update", isNewerVersion(latest, current))
+            .put("apk_url", apkUrl)
+            .put("html_url", rel.optString("html_url", ""))
+    }
+
+    fun downloadUpdateApk(rawUrl: String): File {
+        val url = rawUrl.ifBlank { checkUpdate().optString("apk_url") }
+        if (url.isBlank()) error("未找到 Android APK 下载地址")
+        val updDir = File(context.filesDir, "updates").apply { mkdirs() }
+        val dest = File(updDir, "StarBridge-update.apk")
+        val tmp = File(updDir, "StarBridge-update.tmp")
+
+        updateDownloading = true
+        updateProgress = 1
+        updateMessage = "正在连接下载服务器..."
+        try {
+            val attempts = ArrayList<Pair<String, OkHttpClient>>()
+            if (running) {
+                attempts.add(
+                    url to directHttp.newBuilder()
+                        .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MIXED_PORT)))
+                        .connectTimeout(15, TimeUnit.SECONDS)
+                        .readTimeout(60, TimeUnit.SECONDS)
+                        .build()
+                )
+            }
+            val dlDirect = directHttp.newBuilder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .build()
+            for (prefix in GH_MIRRORS) {
+                val u = if (prefix.isEmpty()) url else "$prefix$url"
+                attempts.add(u to dlDirect)
+            }
+
+            var lastErr: Exception? = null
+            for ((targetUrl, cli) in attempts) {
+                try {
+                    val req = Request.Builder().url(targetUrl).header("User-Agent", "StarBridge/${getAppVersion()}").build()
+                    cli.newCall(req).execute().use { r ->
+                        if (!r.isSuccessful) error("HTTP ${r.code}")
+                        val body = r.body ?: error("空响应")
+                        val total = body.contentLength()
+                        var downloaded = 0L
+                        body.byteStream().use { inp ->
+                            tmp.outputStream().use { out ->
+                                val buf = ByteArray(65536)
+                                while (true) {
+                                    val n = inp.read(buf)
+                                    if (n <= 0) break
+                                    out.write(buf, 0, n)
+                                    downloaded += n
+                                    if (total > 0) {
+                                        updateProgress = ((downloaded * 100) / total).toInt().coerceIn(1, 99)
+                                        updateMessage = String.format(
+                                            Locale.US,
+                                            "已下载 %.1f / %.1f MB",
+                                            downloaded / 1048576.0,
+                                            total / 1048576.0
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    val magic = tmp.inputStream().use { s ->
+                        val b = ByteArray(2)
+                        s.read(b)
+                        b
+                    }
+                    if (magic[0] != 'P'.code.toByte() || magic[1] != 'K'.code.toByte()) {
+                        error("下载的安装包无效")
+                    }
+                    if (dest.exists()) dest.delete()
+                    tmp.renameTo(dest)
+                    updateProgress = 100
+                    updateMessage = "下载完成，正在拉起系统安装..."
+                    return dest
+                } catch (e: Exception) {
+                    lastErr = e
+                    runCatching { tmp.delete() }
+                }
+            }
+            throw RuntimeException("APK 下载失败: ${lastErr?.message}")
+        } finally {
+            updateDownloading = false
+        }
     }
 
     fun getRuntimeSnapshot(): JSONObject {
@@ -323,6 +489,13 @@ class CoreManager(private val context: Context) {
                     .put("enabled", settings.optBoolean("smart_auto_select", false))
                     .put("last_summary", lastSmartSummary)
                     .put("last_time", lastSmartTime)
+            )
+            .put(
+                "update_state",
+                JSONObject()
+                    .put("downloading", updateDownloading)
+                    .put("progress", updateProgress)
+                    .put("message", updateMessage)
             )
     }
 

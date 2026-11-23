@@ -20,7 +20,7 @@ from typing import Any
 
 import yaml
 
-from . import core_updater, mihomo_mgr, node_parser, tray, vpngate, warp_client, win_proxy
+from . import core_updater, mihomo_mgr, node_parser, tray, updater, vpngate, warp_client, win_proxy
 
 
 def _get_app_dirs() -> tuple[Path, Path]:
@@ -101,6 +101,14 @@ class PanelStore:
             "last_run_ts": 0.0,
             "last_run_at": "",
             "last_summary": "",
+        }
+        self.update_state: dict[str, Any] = {
+            "checking": False,
+            "downloading": False,
+            "progress": 0,
+            "message": "",
+            "error": "",
+            "info": None,
         }
 
     def _read_json(self, path: Path, default: Any) -> Any:
@@ -1180,6 +1188,54 @@ class PanelStore:
         if s.get("selected_exit_id") == item_id:
             self.save_settings({"selected_exit_id": exits[0]["id"] if exits else ""})
 
+    def check_app_update(self) -> dict[str, Any]:
+        self.update_state.update({"checking": True, "error": ""})
+        try:
+            px = win_proxy.get_active_proxy_url(self_port=self.mgr.mixed_port) if self.mgr.is_running() else win_proxy.get_active_proxy_url(self_port=self.mgr.mixed_port)
+            info = updater.check_latest_release(proxy_url=px, current_version=updater.APP_VERSION)
+            self.update_state.update({"checking": False, "info": info, "error": ""})
+            return info
+        except Exception as exc:
+            self.update_state.update({"checking": False, "error": str(exc)})
+            raise
+
+    def apply_app_update(self, win_url: str = "") -> dict[str, Any]:
+        if self.update_state.get("downloading"):
+            return {"ok": True, "started": False, "message": "已在下载更新中"}
+        if not getattr(sys, "frozen", False):
+            raise RuntimeError("当前为源码运行模式，请使用打包后的 StarBridge.exe 执行一键原地升级。")
+
+        url = win_url.strip()
+        if not url:
+            info = self.check_app_update()
+            url = str(info.get("win_setup_url") or "")
+        if not url:
+            raise RuntimeError("未找到 Windows 安装包下载链接")
+
+        import tempfile
+        setup_dest = Path(tempfile.gettempdir()) / "StarBridge-Setup-Update.exe"
+        install_dir = Path(sys.executable).resolve().parent
+        px = win_proxy.get_active_proxy_url(self_port=self.mgr.mixed_port)
+
+        self.update_state.update({"downloading": True, "progress": 1, "message": "准备下载更新...", "error": ""})
+
+        def _worker() -> None:
+            try:
+                def _on_prog(pct: int, msg: str) -> None:
+                    self.update_state.update({"progress": pct, "message": msg})
+
+                updater.download_setup_exe(url, setup_dest, proxy_url=px, progress_cb=_on_prog)
+                self.update_state.update({"progress": 100, "message": "下载完成，正在关闭旧版并自动安装..."})
+                self.disconnect()
+                updater.launch_windows_silent_upgrade(setup_dest, install_dir, wait_pid=os.getpid())
+                time.sleep(0.4)
+                os._exit(0)
+            except Exception as exc:
+                self.update_state.update({"downloading": False, "error": str(exc), "message": f"升级失败：{exc}"})
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return {"ok": True, "started": True}
+
     def get_full_state(self, log_filter: str = "") -> dict[str, Any]:
         settings = self.get_settings()
         exits = self.get_exits()
@@ -1229,11 +1285,13 @@ class PanelStore:
         ]
 
         return {
+            "app_version": updater.APP_VERSION,
             "settings": settings,
             "is_admin": win_proxy.is_admin(),
             "core_status": self.mgr.get_core_status(),
             "core_download": dict(self.core_dl_state),
             "smart_status": dict(self.smart_state),
+            "update_state": dict(self.update_state),
             "runtime": self.mgr.get_runtime_status(),
             "warp": {
                 "has_account": self.warp_account_file.exists(),
@@ -1327,7 +1385,15 @@ def create_handler(store: PanelStore) -> type[BaseHTTPRequestHandler]:
                     "runtime": store.mgr.get_runtime_status(),
                     "smart_status": dict(store.smart_state),
                     "core_download": dict(store.core_dl_state),
+                    "update_state": dict(store.update_state),
                 })
+                return
+
+            if parsed.path == "/api/update/check":
+                try:
+                    self._send_json(store.check_app_update())
+                except Exception as exc:
+                    self._send_json({"ok": False, "error": str(exc)}, status=400)
                 return
 
             if parsed.path == "/api/core/status":
@@ -1377,6 +1443,9 @@ def create_handler(store: PanelStore) -> type[BaseHTTPRequestHandler]:
                     self._send_json(store.diagnose())
                 elif path == "/api/core/download":
                     res = store.download_core(force=bool(body.get("force", False)))
+                    self._send_json(res)
+                elif path == "/api/update/apply":
+                    res = store.apply_app_update(win_url=str(body.get("win_setup_url", "")))
                     self._send_json(res)
                 elif path == "/api/warp/scan":
                     use_awg = bool(store.get_settings().get("use_awg", True))

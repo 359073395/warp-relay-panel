@@ -222,8 +222,11 @@
   <aside class="sidebar">
     <div style="display:flex; flex-direction:column; gap:12px;">
       <div class="brand-row">
-        <div class="brand" style="display:flex;align-items:center;gap:8px;"><img src="/starbridge.png" alt="StarBridge" style="width:22px;height:22px;border-radius:5px;" /><span>星桥 · StarBridge</span></div>
-        <button class="btn xs" onclick="openSettingsModal()">⚙️ 设置</button>
+        <div class="brand" style="display:flex;align-items:center;gap:8px;"><img src="/starbridge.png" alt="StarBridge" style="width:22px;height:22px;border-radius:5px;" /><span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.0</small></span></div>
+        <div class="row" style="gap:4px;">
+          <button class="btn xs" id="checkUpdateBtn" onclick="checkAppUpdate(false)">更新</button>
+          <button class="btn xs" onclick="openSettingsModal()">⚙️ 设置</button>
+        </div>
       </div>
 
       <div class="power-zone">
@@ -271,6 +274,7 @@
     <!-- 底部接管与分流切换 -->
     <div style="display:flex; flex-direction:column; gap:8px;">
       <button id="downloadCoreBtn" class="chip-btn warn" style="display:none;" onclick="downloadCore(false)">⬇️ 缺少内核，点击一键下载</button>
+      <button id="updateBannerBtn" class="chip-btn active" style="display:none;" onclick="applyAppUpdate()"></button>
       <div class="mode-footer">
         <button id="proxyModeChip" class="chip-btn active" onclick="cycleProxyMode()">系统代理 ⇄</button>
         <button id="routeModeChip" class="chip-btn active" onclick="cycleRouteMode()">大陆分流 ⇄</button>
@@ -1313,12 +1317,97 @@
         if (STATE) {
           STATE.runtime = r.runtime || STATE.runtime;
           STATE.smart_status = r.smart_status || STATE.smart_status;
+          STATE.update_state = r.update_state || STATE.update_state;
           renderRuntimeOnly(STATE.runtime, STATE.smart_status);
+          renderUpdateBanner(STATE.update_state);
         }
       } catch (e) {}
     }
 
-    refreshState();
+    let _latestUpdateInfo = null;
+    function renderUpdateBanner(us) {
+      const btn = document.getElementById('updateBannerBtn');
+      if (!btn) return;
+      if (us && us.downloading) {
+        btn.style.display = 'block';
+        btn.disabled = true;
+        btn.textContent = `⏳ 升级下载中 ${us.progress || 0}%`;
+        setTaskStatus(`⏳ ${us.message || '正在下载新版安装包...'} (${us.progress || 0}%)`, 'busy');
+        return;
+      }
+      if (us && us.error && !(_latestUpdateInfo && _latestUpdateInfo.has_update)) {
+        btn.disabled = false;
+      }
+      if (_latestUpdateInfo && _latestUpdateInfo.has_update) {
+        btn.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = `⬆️ 发现新版本 v${_latestUpdateInfo.latest_version} · 一键升级`;
+      } else {
+        btn.style.display = 'none';
+      }
+    }
+
+    async function checkAppUpdate(silent = false) {
+      const topBtn = document.getElementById('checkUpdateBtn');
+      if (!silent && topBtn) topBtn.textContent = '检测中...';
+      try {
+        const res = await api('/api/update/check');
+        _latestUpdateInfo = res;
+        if (res.current_version) {
+          document.getElementById('verBadge').textContent = 'v' + res.current_version;
+        }
+        renderUpdateBanner(STATE && STATE.update_state);
+        if (!silent) {
+          if (res.has_update) {
+            if (topBtn) topBtn.textContent = `新 v${res.latest_version}`;
+            if (confirm(`检测到新版本 v${res.latest_version}（当前 v${res.current_version}），是否立即一键升级并自动重启？`)) {
+              await applyAppUpdate();
+            }
+          } else {
+            if (topBtn) topBtn.textContent = '已是最新';
+            showToast(`当前已是最新版本 v${res.current_version}`);
+          }
+        } else if (res.has_update && topBtn) {
+          topBtn.textContent = `新 v${res.latest_version}`;
+        }
+      } catch (e) {
+        if (!silent) {
+          if (topBtn) topBtn.textContent = '更新';
+          showToast(e.message, true);
+        }
+      }
+    }
+
+    async function applyAppUpdate() {
+      try {
+        const winUrl = _latestUpdateInfo ? (_latestUpdateInfo.win_setup_url || '') : '';
+        await api('/api/update/apply', { win_setup_url: winUrl });
+        setTaskStatus('⏳ 已开始下载新版安装包，完成后将自动静默升级并重启...', 'busy');
+        const timer = setInterval(async () => {
+          try {
+            const r = await api('/api/runtime');
+            const us = r.update_state || {};
+            renderUpdateBanner(us);
+            if (!us.downloading && us.error) {
+              clearInterval(timer);
+              setTaskStatus(`❌ 自动升级失败：${us.error}`, 'err');
+            }
+          } catch (err) {
+            clearInterval(timer);
+            setTaskStatus('✅ 更新包下载完成，正在安装并重启应用...', 'ok');
+          }
+        }, 700);
+      } catch (e) {
+        showToast(e.message, true);
+      }
+    }
+
+    refreshState().then(() => {
+      if (STATE && STATE.app_version) {
+        document.getElementById('verBadge').textContent = 'v' + STATE.app_version;
+      }
+    });
+    setTimeout(() => checkAppUpdate(true), 4000);
     setInterval(() => { if (STATE && STATE.runtime && STATE.runtime.running) pollRuntime(); }, 3000);
   </script>
 </body>

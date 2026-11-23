@@ -30,7 +30,10 @@ class TestAndroidProjectAndWorkflow(unittest.TestCase):
         manifest = (android_dir / "app" / "src" / "main" / "AndroidManifest.xml").read_text(encoding="utf-8")
         self.assertIn('android:extractNativeLibs="true"', manifest)
         self.assertIn("android.permission.BIND_VPN_SERVICE", manifest)
+        self.assertIn("android.permission.REQUEST_INSTALL_PACKAGES", manifest)
+        self.assertIn("androidx.core.content.FileProvider", manifest)
         self.assertIn("StarBridgeVpnService", manifest)
+        self.assertTrue((android_dir / "app" / "src" / "main" / "res" / "xml" / "file_paths.xml").exists())
 
         gradle_app = (android_dir / "app" / "build.gradle.kts").read_text(encoding="utf-8")
         self.assertIn("useLegacyPackaging = true", gradle_app)
