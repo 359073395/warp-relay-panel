@@ -99,21 +99,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun launchApkInstaller(apkFile: File) {
-        if (!packageManager.canRequestPackageInstalls()) {
-            pendingApkFile = apkFile
-            val permIntent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:$packageName")
-            )
-            installPermLauncher.launch(permIntent)
-            return
+        try {
+            if (!packageManager.canRequestPackageInstalls()) {
+                pendingApkFile = apkFile
+                val permIntent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                )
+                installPermLauncher.launch(permIntent)
+                return
+            }
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, "拉起安装器失败: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
         }
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apkFile)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        startActivity(intent)
     }
 
     private fun resolveJs(reqId: String, ok: Boolean, jsonStr: String) {

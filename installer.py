@@ -113,11 +113,20 @@ def safe_extract_zip(
             if not dest.is_relative_to(target_dir):
                 raise ValueError(f"非法压缩路径：{info.filename}")
             dest.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                with zf.open(info, "r") as src, dest.open("wb") as dst:
-                    shutil.copyfileobj(src, dst, length=1024 * 128)
-            except PermissionError as exc:
-                raise RuntimeError(f"无法写入 {dest.name}，请先退出正在运行的 {APP_NAME}.exe 后重试。") from exc
+            import time as _time
+            written = False
+            for attempt in range(12):
+                try:
+                    with zf.open(info, "r") as src, dest.open("wb") as dst:
+                        shutil.copyfileobj(src, dst, length=1024 * 128)
+                    written = True
+                    break
+                except PermissionError as exc:
+                    if attempt == 11:
+                        raise RuntimeError(f"无法写入 {dest.name}，请先退出正在运行的 {APP_NAME}.exe 后重试。") from exc
+                    _time.sleep(0.5)
+            if not written:
+                raise RuntimeError(f"无法写入 {dest.name}")
             if progress_cb:
                 progress_cb(idx, total, norm)
 
@@ -159,7 +168,7 @@ def register_uninstall_entry(install_dir: Path, exe_path: Path, uninst_ps1: Path
         winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, str(exe_path))
         winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(install_dir))
         winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "StarBridge")
-        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "2.2.0")
+        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "2.2.1")
         winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, cmd)
         winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
         winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)

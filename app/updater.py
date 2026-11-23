@@ -12,9 +12,10 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.2.1"
 GITHUB_LATEST_API = "https://api.github.com/repos/359073395/warp-relay-panel/releases/latest"
-GH_MIRRORS = ["", "https://gh-proxy.com/", "https://mirror.ghproxy.com/", "https://ghfast.top/"]
+GITHUB_RELEASES_ATOM = "https://github.com/359073395/warp-relay-panel/releases.atom"
+GH_MIRRORS = ["", "https://gh-proxy.com/"]
 
 
 def parse_version(raw: str) -> tuple[int, ...]:
@@ -50,6 +51,34 @@ def _open_url(url: str, proxy_url: str | None = None, timeout: float = 15.0):
     return opener.open(req, timeout=timeout)
 
 
+def _check_via_atom(proxy_url: str | None = None) -> dict[str, Any] | None:
+    urls: list[tuple[str, str | None]] = []
+    if proxy_url:
+        urls.append((GITHUB_RELEASES_ATOM, proxy_url))
+    for prefix in GH_MIRRORS:
+        urls.append((f"{prefix}{GITHUB_RELEASES_ATOM}" if prefix else GITHUB_RELEASES_ATOM, None))
+    for u, px in urls:
+        try:
+            with _open_url(u, proxy_url=px, timeout=10.0) as resp:
+                xml_head = resp.read(24000).decode("utf-8", errors="ignore")
+            m = re.search(r"releases/tag/(v?\d+(?:\.\d+)+)", xml_head)
+            if m:
+                tag = m.group(1)
+                base_dl = f"https://github.com/359073395/warp-relay-panel/releases/download/{tag}"
+                return {
+                    "tag_name": tag,
+                    "body": "",
+                    "html_url": f"https://github.com/359073395/warp-relay-panel/releases/tag/{tag}",
+                    "assets": [
+                        {"name": "StarBridge-Setup.exe", "browser_download_url": f"{base_dl}/StarBridge-Setup.exe"},
+                        {"name": "StarBridge-android-arm64.apk", "browser_download_url": f"{base_dl}/StarBridge-android-arm64.apk"},
+                    ],
+                }
+        except Exception:
+            continue
+    return None
+
+
 def check_latest_release(
     proxy_url: str | None = None,
     current_version: str = APP_VERSION,
@@ -59,11 +88,13 @@ def check_latest_release(
     data: dict[str, Any] | None = None
     for px in proxies_to_try:
         try:
-            with _open_url(GITHUB_LATEST_API, proxy_url=px, timeout=12.0) as resp:
+            with _open_url(GITHUB_LATEST_API, proxy_url=px, timeout=10.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
             break
         except Exception as exc:
             last_err = exc
+    if data is None:
+        data = _check_via_atom(proxy_url=proxy_url)
     if data is None:
         raise RuntimeError(f"检查更新失败: {last_err}")
 

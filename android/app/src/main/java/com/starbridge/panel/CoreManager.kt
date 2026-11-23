@@ -31,7 +31,9 @@ class CoreManager(private val context: Context) {
             "https://raw.githubusercontent.com/359073395/subs-check-auto/main/subs/all.yaml"
         private const val GITHUB_LATEST_API =
             "https://api.github.com/repos/359073395/warp-relay-panel/releases/latest"
-        private val GH_MIRRORS = listOf("", "https://gh-proxy.com/", "https://mirror.ghproxy.com/", "https://ghfast.top/")
+        private const val GITHUB_RELEASES_ATOM =
+            "https://github.com/359073395/warp-relay-panel/releases.atom"
+        private val GH_MIRRORS = listOf("", "https://gh-proxy.com/")
         private val GEO_FILES = listOf("geosite.dat", "geoip.dat", "geoip.metadb")
     }
 
@@ -333,6 +335,35 @@ class CoreManager(private val context: Context) {
         return false
     }
 
+    private fun checkUpdateViaAtom(clients: List<OkHttpClient>): JSONObject? {
+        for (cli in clients) {
+            for (prefix in GH_MIRRORS) {
+                val u = if (prefix.isEmpty()) GITHUB_RELEASES_ATOM else "$prefix$GITHUB_RELEASES_ATOM"
+                try {
+                    val req = Request.Builder().url(u).header("User-Agent", "StarBridge/${getAppVersion()}").build()
+                    cli.newCall(req).execute().use { r ->
+                        if (!r.isSuccessful) return@use
+                        val body = r.body?.string() ?: ""
+                        val m = Regex("releases/tag/(v?\\d+(?:\\.\\d+)+)").find(body)
+                        if (m != null) {
+                            val tag = m.groupValues[1]
+                            val dl = "https://github.com/359073395/warp-relay-panel/releases/download/$tag/StarBridge-android-arm64.apk"
+                            val assets = JSONArray().put(
+                                JSONObject().put("name", "StarBridge-android-arm64.apk").put("browser_download_url", dl)
+                            )
+                            return JSONObject()
+                                .put("tag_name", tag)
+                                .put("html_url", "https://github.com/359073395/warp-relay-panel/releases/tag/$tag")
+                                .put("assets", assets)
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
+        return null
+    }
+
     fun checkUpdate(): JSONObject {
         val clients = ArrayList<OkHttpClient>()
         if (running) {
@@ -360,6 +391,9 @@ class CoreManager(private val context: Context) {
             } catch (e: Exception) {
                 lastErr = e
             }
+        }
+        if (data == null) {
+            data = checkUpdateViaAtom(clients)
         }
         val rel = data ?: throw RuntimeException("检查更新失败: ${lastErr?.message}")
         val tag = rel.optString("tag_name", "").trim()
@@ -443,12 +477,9 @@ class CoreManager(private val context: Context) {
                             }
                         }
                     }
-                    val magic = tmp.inputStream().use { s ->
-                        val b = ByteArray(2)
-                        s.read(b)
-                        b
-                    }
-                    if (magic[0] != 'P'.code.toByte() || magic[1] != 'K'.code.toByte()) {
+                    val magic = ByteArray(2)
+                    val readLen = tmp.inputStream().use { it.read(magic) }
+                    if (readLen < 2 || magic[0] != 'P'.code.toByte() || magic[1] != 'K'.code.toByte()) {
                         error("下载的安装包无效")
                     }
                     if (dest.exists()) dest.delete()

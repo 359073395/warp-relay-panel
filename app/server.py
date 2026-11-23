@@ -1191,7 +1191,11 @@ class PanelStore:
     def check_app_update(self) -> dict[str, Any]:
         self.update_state.update({"checking": True, "error": ""})
         try:
-            px = win_proxy.get_active_proxy_url(self_port=self.mgr.mixed_port) if self.mgr.is_running() else win_proxy.get_active_proxy_url(self_port=self.mgr.mixed_port)
+            px = (
+                f"http://127.0.0.1:{self.mgr.mixed_port}"
+                if self.mgr.is_running()
+                else win_proxy.get_active_proxy_url(self_port=self.mgr.mixed_port)
+            )
             info = updater.check_latest_release(proxy_url=px, current_version=updater.APP_VERSION)
             self.update_state.update({"checking": False, "info": info, "error": ""})
             return info
@@ -1215,7 +1219,11 @@ class PanelStore:
         import tempfile
         setup_dest = Path(tempfile.gettempdir()) / "StarBridge-Setup-Update.exe"
         install_dir = Path(sys.executable).resolve().parent
-        px = win_proxy.get_active_proxy_url(self_port=self.mgr.mixed_port)
+        px = (
+            f"http://127.0.0.1:{self.mgr.mixed_port}"
+            if self.mgr.is_running()
+            else win_proxy.get_active_proxy_url(self_port=self.mgr.mixed_port)
+        )
 
         self.update_state.update({"downloading": True, "progress": 1, "message": "准备下载更新...", "error": ""})
 
