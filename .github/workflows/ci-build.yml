@@ -80,11 +80,14 @@ jobs:
         run: |
           KS_PATH="${RUNNER_TEMP}/starbridge-release.jks"
           if [ -n "$ANDROID_KEYSTORE_B64" ]; then
+            KS_PASS="${SECRET_KS_PASS:-starbridge}"
+            KEY_PASS="${SECRET_KEY_PASS:-$KS_PASS}"
             echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$KS_PATH"
+            REAL_ALIAS=$(keytool -list -keystore "$KS_PATH" -storepass "$KS_PASS" | awk -F',' '/PrivateKeyEntry/{print $1; exit}' | xargs)
             echo "ANDROID_KEYSTORE_PATH=$KS_PATH" >> "$GITHUB_ENV"
-            echo "ANDROID_KEYSTORE_PASSWORD=${SECRET_KS_PASS:-starbridge}" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_ALIAS=${SECRET_KEY_ALIAS:-starbridge}" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_PASSWORD=${SECRET_KEY_PASS:-starbridge}" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KS_PASS" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_ALIAS=${REAL_ALIAS:-${SECRET_KEY_ALIAS:-starbridge}}" >> "$GITHUB_ENV"
+            echo "ANDROID_KEY_PASSWORD=$KEY_PASS" >> "$GITHUB_ENV"
           else
             keytool -genkeypair -v -keystore "$KS_PATH" -storetype PKCS12 \
               -alias starbridge -storepass starbridge -keypass starbridge \
