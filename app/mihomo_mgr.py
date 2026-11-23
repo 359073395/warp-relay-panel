@@ -229,12 +229,21 @@ class MihomoManager:
             "allow-lan": bool(settings.get("allow_lan", False)),
             "mode": "rule",
             "log-level": "info",
+            "find-process-mode": "off",
             "ipv6": bool(settings.get("ipv6", False)),
             "unified-delay": True,
             "tcp-concurrent": True,
             "external-controller": f"127.0.0.1:{use_api_port}",
             "geodata-mode": True,
             "geo-auto-update": False,
+            "sniffer": {
+                "enable": True,
+                "sniff": {
+                    "HTTP": {"ports": [80, 8080]},
+                    "TLS": {"ports": [443, 8443]},
+                    "QUIC": {"ports": [443, 8443]},
+                },
+            },
             "dns": {
                 "enable": True,
                 "listen": "127.0.0.1:1053",

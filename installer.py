@@ -127,6 +127,44 @@ def safe_extract_zip(
     return exe_path
 
 
+def write_uninstaller(install_dir: Path) -> Path:
+    uninst_ps1 = install_dir / "uninstall.ps1"
+    uninst_ps1.write_text(
+        f"""$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+$ans = [System.Windows.Forms.MessageBox]::Show("确定要卸载 {DISPLAY_NAME} 吗？", "卸载 {DISPLAY_NAME}", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+if ($ans -ne [System.Windows.Forms.DialogResult]::Yes) {{ exit 0 }}
+Get-Process -Name "{APP_NAME}","mihomo","xray" -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Milliseconds 400
+Remove-Item (Join-Path $env:USERPROFILE "Desktop\\星桥 StarBridge.lnk") -Force
+Remove-Item (Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs\\星桥 StarBridge.lnk") -Force
+Remove-Item "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{APP_NAME}" -Recurse -Force
+$dir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Start-Process powershell -WindowStyle Hidden -ArgumentList "-NoProfile -Command Start-Sleep -Seconds 1; Remove-Item -LiteralPath '$dir' -Recurse -Force"
+""",
+        encoding="utf-8",
+    )
+    return uninst_ps1
+
+
+def register_uninstall_entry(install_dir: Path, exe_path: Path, uninst_ps1: Path) -> None:
+    if sys.platform != "win32":
+        return
+    import winreg
+
+    key_path = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{APP_NAME}"
+    cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{uninst_ps1}"'
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+        winreg.SetValueEx(key, "DisplayName", 0, winreg.REG_SZ, DISPLAY_NAME)
+        winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, str(exe_path))
+        winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(install_dir))
+        winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "StarBridge")
+        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "2.1.0")
+        winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, cmd)
+        winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
+
+
 def perform_install(
     install_dir: Path,
     create_desktop: bool = True,
@@ -134,9 +172,17 @@ def perform_install(
     launch_after: bool = False,
     payload_path: Path | None = None,
     progress_cb: Callable[[int, int, str], None] | None = None,
+    register_uninstall: bool = True,
 ) -> Path:
     zip_path = payload_path or resolve_payload_path()
     exe_path = safe_extract_zip(zip_path, install_dir, progress_cb=progress_cb)
+
+    if register_uninstall:
+        try:
+            uninst = write_uninstaller(install_dir)
+            register_uninstall_entry(install_dir, exe_path, uninst)
+        except Exception:
+            pass
 
     if create_start_menu:
         appdata = Path(os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming"))

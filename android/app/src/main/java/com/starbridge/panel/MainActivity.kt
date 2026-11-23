@@ -108,6 +108,21 @@ class MainActivity : AppCompatActivity() {
                             }
                             resolveJs(reqId, true, st.toString())
                         }
+                        "runtime" -> {
+                            val rt = core.getRuntimeSnapshot()
+                            if (StarBridgeVpnService.lastError.isNotEmpty()) {
+                                rt.put("last_error", StarBridgeVpnService.lastError)
+                            }
+                            resolveJs(reqId, true, rt.toString())
+                        }
+                        "logs" -> {
+                            val text = core.readLogs(body.optInt("lines", 100))
+                            resolveJs(reqId, true, JSONObject().put("logs", text).toString())
+                        }
+                        "refresh_sub" -> {
+                            val res = core.refreshUnderlaySubs(body.optString("id", ""))
+                            resolveJs(reqId, true, res.toString())
+                        }
                         "settings" -> {
                             val res = core.updateSettings(body)
                             resolveJs(reqId, true, res.toString())

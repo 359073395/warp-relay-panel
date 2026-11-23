@@ -41,7 +41,11 @@ class CoreManager(private val context: Context) {
     private val stateFile = File(dataDir, "state.json")
 
     private val lock = Any()
+    private val saveExec = Executors.newSingleThreadExecutor()
+    private val reloadExec = Executors.newSingleThreadExecutor()
+    @Volatile private var cachedState: JSONObject? = null
     @Volatile var running = false
+    @Volatile var connecting = false
     private var mihomoProc: Process? = null
     private var xrayProc: Process? = null
     private var lastSmartSummary = ""
@@ -91,7 +95,8 @@ class CoreManager(private val context: Context) {
     }
 
     private fun loadState(): JSONObject = synchronized(lock) {
-        return try {
+        cachedState?.let { return JSONObject(it.toString()) }
+        val loaded = try {
             val s = JSONObject(stateFile.readText())
             if (!s.has("settings")) s.put("settings", defaultState().getJSONObject("settings"))
             if (!s.has("custom_underlays")) s.put("custom_underlays", JSONArray())
@@ -104,10 +109,18 @@ class CoreManager(private val context: Context) {
         } catch (_: Exception) {
             defaultState()
         }
+        cachedState = loaded
+        return JSONObject(loaded.toString())
     }
 
-    private fun saveState(st: JSONObject) = synchronized(lock) {
-        stateFile.writeText(st.toString(2))
+    private fun saveState(st: JSONObject) {
+        val snapshot = synchronized(lock) {
+            cachedState = JSONObject(st.toString())
+            cachedState!!.toString(2)
+        }
+        saveExec.execute {
+            runCatching { stateFile.writeText(snapshot) }
+        }
     }
 
     private fun jsonToMap(obj: JSONObject): LinkedHashMap<String, Any?> {
@@ -259,6 +272,7 @@ class CoreManager(private val context: Context) {
                 "runtime",
                 JSONObject()
                     .put("running", running)
+                    .put("connecting", connecting)
                     .put("mixed_port", MIXED_PORT)
                     .put("active_hop1", live.optString("active_hop1", ""))
                     .put("active_exit", live.optString("active_exit", ""))
@@ -287,15 +301,56 @@ class CoreManager(private val context: Context) {
             )
     }
 
+    fun getRuntimeSnapshot(): JSONObject {
+        val st = loadState()
+        val settings = st.getJSONObject("settings")
+        val live = if (running) getLiveStatus() else JSONObject()
+        return JSONObject()
+            .put(
+                "runtime",
+                JSONObject()
+                    .put("running", running)
+                    .put("connecting", connecting)
+                    .put("mixed_port", MIXED_PORT)
+                    .put("active_hop1", live.optString("active_hop1", ""))
+                    .put("active_exit", live.optString("active_exit", ""))
+                    .put("upload_total", live.optLong("upload_total", 0))
+                    .put("download_total", live.optLong("download_total", 0))
+            )
+            .put(
+                "smart_status",
+                JSONObject()
+                    .put("enabled", settings.optBoolean("smart_auto_select", false))
+                    .put("last_summary", lastSmartSummary)
+                    .put("last_time", lastSmartTime)
+            )
+    }
+
+    fun readLogs(maxLines: Int = 100): String {
+        val logFile = File(coreDir, "core.log")
+        if (!logFile.exists()) return "暂无内核日志"
+        return runCatching {
+            logFile.readLines().takeLast(maxLines.coerceIn(10, 500)).joinToString("\n")
+        }.getOrDefault("读取日志失败")
+    }
+
     fun updateSettings(patch: JSONObject): JSONObject {
         val st = loadState()
         val settings = st.getJSONObject("settings")
+        val changedKeys = HashSet<String>()
         val keys = patch.keys()
         while (keys.hasNext()) {
             val k = keys.next()
             settings.put(k, patch.get(k))
+            changedKeys.add(k)
         }
         saveState(st)
+        val routingKeys = setOf("underlay_strategy", "selected_underlay", "use_awg", "use_exit_hop", "selected_exit_id", "route_mode")
+        if (running && changedKeys.any { it in routingKeys }) {
+            reloadExec.execute {
+                runCatching { hotReloadConfig() }
+            }
+        }
         return getStateSnapshot()
     }
 
@@ -506,6 +561,41 @@ class CoreManager(private val context: Context) {
         saveState(st)
     }
 
+    fun refreshUnderlaySubs(targetId: String = ""): JSONObject {
+        val st = loadState()
+        val subs = st.getJSONArray("underlay_subs")
+        var totalNodes = 0
+        for (i in 0 until subs.length()) {
+            val sub = subs.getJSONObject(i)
+            if (targetId.isNotEmpty() && sub.optString("id") != targetId) continue
+            val url = sub.optString("url")
+            val label = sub.optString("name", "订阅")
+            if (url.isBlank()) continue
+            val req = Request.Builder().url(url).header("User-Agent", "ClashMeta/1.18").build()
+            val body = directHttp.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) error("订阅拉取失败 HTTP ${r.code}")
+                r.body?.string() ?: ""
+            }
+            val nodes = NodeParser.parseSubscriptionContent(body)
+            if (nodes.isNotEmpty()) {
+                val nodeArr = JSONArray()
+                nodes.forEachIndexed { idx, p ->
+                    val mut = LinkedHashMap(p)
+                    val rawName = p["name"]?.toString()?.ifBlank { "节点${idx + 1}" } ?: "节点${idx + 1}"
+                    mut["name"] = "[$label] $rawName"
+                    mut["delay_ms"] = null
+                    mut["speed_mbps"] = null
+                    nodeArr.put(mapToJson(mut))
+                }
+                sub.put("nodes", nodeArr)
+                sub.put("updated_at", nowStr())
+                totalNodes += nodeArr.length()
+            }
+        }
+        saveState(st)
+        return JSONObject().put("ok", true).put("count", totalNodes)
+    }
+
     fun addExitNode(raw: String, remark: String = "", defaultType: String = "socks5"): JSONObject {
         val lines = raw.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val st = loadState()
@@ -552,15 +642,20 @@ class CoreManager(private val context: Context) {
         s.put("underlay_strategy", "manual")
         saveState(st)
         if (running) {
-            runCatching { switchGroup("HOP1", name) }
+            reloadExec.execute {
+                val switched = runCatching { switchGroup("HOP1", name) }.getOrDefault(false)
+                if (!switched) {
+                    runCatching { hotReloadConfig() }
+                }
+            }
         }
     }
 
-    private fun switchGroup(group: String, nodeName: String) {
+    private fun switchGroup(group: String, nodeName: String): Boolean {
         val body = JSONObject().put("name", nodeName).toString().toRequestBody("application/json".toMediaType())
         val enc = URLEncoder.encode(group, "UTF-8").replace("+", "%20")
         val req = Request.Builder().url("http://127.0.0.1:$CTRL_PORT/proxies/$enc").put(body).build()
-        directHttp.newCall(req).execute().close()
+        return directHttp.newCall(req).execute().use { it.isSuccessful }
     }
 
     private fun collectHop1Pool(st: JSONObject, kind: String): List<Triple<String, Map<String, Any?>, Any>> {
@@ -705,27 +800,32 @@ class CoreManager(private val context: Context) {
 
             if (!waitForPort(tempCtrl, 5000)) error("临时测速内核启动超时")
 
-            val exec = Executors.newFixedThreadPool(8)
+            val exec = Executors.newFixedThreadPool(10)
             val delayMap = HashMap<String, Int?>()
             val futures = aliases.map { alias ->
                 exec.submit(Callable {
-                    val d = probeSingleDelay(tempCtrl, alias)
+                    val d = runCatching { probeSingleDelay(tempCtrl, alias) }.getOrNull()
                     alias to d
                 })
             }
             for (f in futures) {
-                val (alias, d) = f.get()
-                delayMap[alias] = d
+                runCatching {
+                    val (alias, d) = f.get(4, TimeUnit.SECONDS)
+                    delayMap[alias] = d
+                }
             }
-            exec.shutdown()
+            exec.shutdownNow()
 
             val speedMap = HashMap<String, Double?>()
             if (testSpeed) {
-                val aliveAliases = aliases.filter { (delayMap[it] ?: -1) > 0 }.take(15)
+                val aliveAliases = aliases
+                    .filter { (delayMap[it] ?: -1) > 0 }
+                    .sortedBy { delayMap[it] ?: 99999 }
+                    .take(5)
                 val proxyHttp = directHttp.newBuilder()
                     .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", tempMixed)))
-                    .connectTimeout(6, TimeUnit.SECONDS)
-                    .readTimeout(6, TimeUnit.SECONDS)
+                    .connectTimeout(3, TimeUnit.SECONDS)
+                    .readTimeout(3, TimeUnit.SECONDS)
                     .build()
                 for (alias in aliveAliases) {
                     runCatching {
@@ -738,7 +838,7 @@ class CoreManager(private val context: Context) {
 
                         val start = System.nanoTime()
                         val dlReq = Request.Builder()
-                            .url("https://speed.cloudflare.com/__down?bytes=1500000")
+                            .url("https://speed.cloudflare.com/__down?bytes=524288")
                             .build()
                         var bytes = 0L
                         proxyHttp.newCall(dlReq).execute().use { r ->
@@ -749,12 +849,12 @@ class CoreManager(private val context: Context) {
                                     val n = stream.read(buf)
                                     if (n <= 0) break
                                     bytes += n
-                                    if (System.nanoTime() - start > 3_500_000_000L) break
+                                    if (System.nanoTime() - start > 1_800_000_000L) break
                                 }
                             }
                         }
                         val sec = (System.nanoTime() - start) / 1e9
-                        if (bytes > 8192 && sec > 0.05) {
+                        if (bytes > 4096 && sec > 0.04) {
                             val mbps = ((bytes * 8.0) / sec) / 1_000_000.0
                             speedMap[alias] = Math.round(mbps * 100.0) / 100.0
                         }
@@ -789,7 +889,9 @@ class CoreManager(private val context: Context) {
                     obj.put("speed_mbps", JSONObject.NULL)
                 }
             }
-            sortRankedArrays(st)
+            if (targetId.isEmpty() && nodeName.isEmpty()) {
+                sortRankedArrays(st)
+            }
             saveState(st)
             return JSONObject()
                 .put("tested", items.size)
@@ -824,7 +926,7 @@ class CoreManager(private val context: Context) {
         val enc = URLEncoder.encode(alias, "UTF-8").replace("+", "%20")
         for (testUrl in listOf("https://www.gstatic.com/generate_204", "http://cp.cloudflare.com/generate_204")) {
             try {
-                val u = "http://127.0.0.1:$ctrlPort/proxies/$enc/delay?timeout=4500&url=${URLEncoder.encode(testUrl, "UTF-8")}"
+                val u = "http://127.0.0.1:$ctrlPort/proxies/$enc/delay?timeout=2800&url=${URLEncoder.encode(testUrl, "UTF-8")}"
                 val req = Request.Builder().url(u).build()
                 directHttp.newCall(req).execute().use { r ->
                     if (r.isSuccessful) {
@@ -857,15 +959,7 @@ class CoreManager(private val context: Context) {
         return res.put("best_underlay", best)
     }
 
-    fun startCore() {
-        stopCore()
-        if (!mihomoExe.isFile) error("未找到 libmihomo.so 内核")
-        val st = loadState()
-        val s = st.getJSONObject("settings")
-        if (s.optBoolean("smart_auto_select", false) && s.optString("underlay_strategy") != "direct") {
-            runCatching { smartSelectBest() }
-        }
-        val fresh = loadState()
+    private fun buildRuntimeConfigFiles(fresh: JSONObject): Pair<File, String?> {
         val fs = fresh.getJSONObject("settings")
         val strat = fs.optString("underlay_strategy", "auto_free")
 
@@ -878,13 +972,17 @@ class CoreManager(private val context: Context) {
             else -> collectHop1Pool(fresh, "all").map { it.second }
         }
         val hop1Unique = dedupeAndStrip(hop1Candidates)
-        val allProxies = ArrayList<Map<String, Any?>>(hop1Unique)
-        val hop1Names = hop1Unique.map { it["name"].toString() }.toMutableList()
-        if (strat == "manual") {
-            val sel = fs.optString("selected_underlay")
-            if (sel.isNotEmpty() && hop1Names.remove(sel)) {
-                hop1Names.add(0, sel)
-            }
+        val selName = fs.optString("selected_underlay")
+        val filteredHop1 = if (strat == "manual" && selName.isNotEmpty()) {
+            // 仅对当前选中的节点保留 Xray 桥接资格，避免未用节点白白拉起额外进程
+            hop1Unique.filter { it["name"].toString() == selName || !XrayBridge.shouldBridgeViaXray(it, xrayExe.isFile) }
+        } else {
+            hop1Unique
+        }
+        val allProxies = ArrayList<Map<String, Any?>>(filteredHop1)
+        val hop1Names = filteredHop1.map { it["name"].toString() }.toMutableList()
+        if (strat == "manual" && selName.isNotEmpty() && hop1Names.remove(selName)) {
+            hop1Names.add(0, selName)
         }
 
         val groups = ArrayList<Map<String, Any?>>()
@@ -927,15 +1025,6 @@ class CoreManager(private val context: Context) {
         }
 
         val bridged = XrayBridge.prepare(allProxies, xrayExe)
-        if (bridged.xrayConfigJson != null && xrayExe.isFile) {
-            val xf = File(coreDir, "xray.json").apply { writeText(bridged.xrayConfigJson) }
-            xrayProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
-                .directory(coreDir)
-                .redirectErrorStream(true)
-                .start()
-            Thread.sleep(250)
-        }
-
         val routeMode = fs.optString("route_mode", "bypass_cn")
         val rules = if (routeMode == "global") {
             listOf("MATCH,$finalGroup")
@@ -952,13 +1041,25 @@ class CoreManager(private val context: Context) {
             "mixed-port" to MIXED_PORT,
             "allow-lan" to false,
             "mode" to "rule",
-            "log-level" to "info",
+            "log-level" to "warning",
+            "find-process-mode" to "off",
+            "tcp-concurrent" to true,
+            "unified-delay" to true,
             "external-controller" to "127.0.0.1:$CTRL_PORT",
+            "sniffer" to mapOf(
+                "enable" to true,
+                "sniff" to mapOf(
+                    "HTTP" to mapOf("ports" to listOf(80, 8080)),
+                    "TLS" to mapOf("ports" to listOf(443, 8443)),
+                    "QUIC" to mapOf("ports" to listOf(443, 8443))
+                )
+            ),
             "dns" to mapOf(
                 "enable" to true,
                 "ipv6" to false,
                 "enhanced-mode" to "fake-ip",
                 "fake-ip-range" to "198.18.0.1/16",
+                "proxy-server-nameserver" to listOf("223.5.5.5", "119.29.29.29"),
                 "nameserver" to listOf("223.5.5.5", "119.29.29.29"),
                 "fallback" to listOf("1.1.1.1", "8.8.8.8")
             ),
@@ -967,22 +1068,77 @@ class CoreManager(private val context: Context) {
             "rules" to rules
         )
         val cf = File(coreDir, "config.yaml").apply { writeText(buildYamlStr(cfg)) }
-        val logFile = File(coreDir, "core.log")
-        mihomoProc = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath)
-            .directory(coreDir)
-            .redirectErrorStream(true)
-            .redirectOutput(logFile)
-            .start()
+        return cf to bridged.xrayConfigJson
+    }
 
-        if (!waitForPort(MIXED_PORT, 6000)) {
-            stopCore()
-            error("Mihomo 启动超时，请查看 core.log")
+    private fun hotReloadConfig() {
+        if (!running) return
+        val fresh = loadState()
+        val (cf, xrayJson) = buildRuntimeConfigFiles(fresh)
+        if (xrayJson != null && xrayExe.isFile) {
+            runCatching { xrayProc?.destroy() }
+            val xf = File(coreDir, "xray.json").apply { writeText(xrayJson) }
+            xrayProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
+                .directory(coreDir)
+                .redirectErrorStream(true)
+                .start()
+            Thread.sleep(200)
+        } else {
+            runCatching { xrayProc?.destroy() }
+            xrayProc = null
         }
-        running = true
+        val body = JSONObject().put("path", cf.absolutePath).toString().toRequestBody("application/json".toMediaType())
+        val req = Request.Builder().url("http://127.0.0.1:$CTRL_PORT/configs?force=true").put(body).build()
+        val ok = runCatching {
+            directHttp.newCall(req).execute().use { it.isSuccessful }
+        }.getOrDefault(false)
+        if (!ok) {
+            startCore()
+        }
+    }
+
+    fun startCore() {
+        connecting = true
+        try {
+            stopCore()
+            if (!mihomoExe.isFile) error("未找到 libmihomo.so 内核")
+            val st = loadState()
+            val s = st.getJSONObject("settings")
+            if (s.optBoolean("smart_auto_select", false) && s.optString("underlay_strategy") != "direct") {
+                runCatching { smartSelectBest() }
+            }
+            val fresh = loadState()
+            val (cf, xrayJson) = buildRuntimeConfigFiles(fresh)
+
+            if (xrayJson != null && xrayExe.isFile) {
+                val xf = File(coreDir, "xray.json").apply { writeText(xrayJson) }
+                xrayProc = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
+                    .directory(coreDir)
+                    .redirectErrorStream(true)
+                    .start()
+                Thread.sleep(200)
+            }
+
+            val logFile = File(coreDir, "core.log")
+            mihomoProc = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath)
+                .directory(coreDir)
+                .redirectErrorStream(true)
+                .redirectOutput(logFile)
+                .start()
+
+            if (!waitForPort(MIXED_PORT, 6000)) {
+                stopCore()
+                error("Mihomo 启动超时，请查看 core.log")
+            }
+            running = true
+        } finally {
+            connecting = false
+        }
     }
 
     fun stopCore() {
         running = false
+        connecting = false
         runCatching { mihomoProc?.destroy() }
         runCatching { xrayProc?.destroy() }
         mihomoProc = null

@@ -32,13 +32,15 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 8px;
     }
     .brand {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 800;
+      white-space: nowrap;
     }
     .brand img { width: 26px; height: 26px; border-radius: 6px; }
     .card {
@@ -73,14 +75,23 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 4px;
+      gap: 6px;
       box-shadow: 0 0 24px rgba(37, 99, 235, 0.35);
+      transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease;
+    }
+    .power-btn:active { transform: scale(0.95); }
+    .power-btn.connecting {
+      border-color: rgba(245, 158, 11, 0.65);
+      background: linear-gradient(145deg, #b45309, #d97706);
+      box-shadow: 0 0 24px rgba(245, 158, 11, 0.35);
     }
     .power-btn.connected {
       border-color: rgba(16, 185, 129, 0.55);
       background: linear-gradient(145deg, #059669, #10b981);
       box-shadow: 0 0 26px rgba(16, 185, 129, 0.38);
     }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.9s linear infinite; }
     .power-sub { font-size: 12px; color: var(--muted); text-align: center; }
     .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -93,7 +104,11 @@
       border-radius: 9px;
       font-size: 12px;
       font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
+    .btn:active { opacity: 0.78; }
     .btn.primary { background: #2563eb; border-color: #3b82f6; color: #fff; }
     .btn.xs { padding: 4px 8px; font-size: 11px; }
     .btn.danger { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.35); color: #fca5a5; }
@@ -196,6 +211,40 @@
       align-items: center;
       gap: 8px;
     }
+    .modal-mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.68);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      z-index: 900;
+    }
+    .modal-mask.open { display: flex; }
+    .modal {
+      width: 100%;
+      max-height: 82vh;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    pre.logs {
+      background: #060913;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px;
+      font-size: 11px;
+      color: #94a3b8;
+      max-height: 56vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: ui-monospace, Consolas, monospace;
+    }
   </style>
 </head>
 <body>
@@ -204,15 +253,20 @@
       <img src="starbridge.png" alt="" />
       <span>星桥 · StarBridge</span>
     </div>
-    <div class="seg" id="routeModeSeg">
-      <button data-r="bypass_cn" onclick="setRouteMode('bypass_cn')">绕过大陆</button>
-      <button data-r="global" onclick="setRouteMode('global')">全局</button>
+    <div class="row" style="gap:6px;">
+      <div class="seg" id="routeModeSeg">
+        <button data-r="bypass_cn" onclick="setRouteMode('bypass_cn')">绕过大陆</button>
+        <button data-r="global" onclick="setRouteMode('global')">全局</button>
+      </div>
+      <button class="btn xs" onclick="openLogsModal()">日志</button>
     </div>
   </div>
 
   <div class="power-zone">
     <button id="powerBtn" class="power-btn" onclick="toggleConnect()">
-      <span style="font-size:24px;">⏻</span>
+      <span id="powerIcon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>
+      </span>
       <span id="powerLabel">一键连接</span>
     </button>
     <div id="powerSub" class="power-sub">未连接</div>
@@ -221,7 +275,7 @@
       <span>智能选择节点（连接及每小时自动优选）</span>
     </label>
     <div class="row" style="justify-content:center;">
-      <button class="btn xs" onclick="runDiagnose()">🔍 检测当前出口 IP</button>
+      <button class="btn xs" onclick="runDiagnose()">检测当前出口 IP</button>
       <span id="diagText" class="meta"></span>
     </div>
   </div>
@@ -229,8 +283,8 @@
   <div id="taskBanner" class="task-banner"></div>
 
   <div class="tabs">
-    <button id="tabEntry" class="active" onclick="switchTab('entry')">🚀 加速线路</button>
-    <button id="tabExit" onclick="switchTab('exit')">🏠 住宅出口（可选）</button>
+    <button id="tabEntry" class="active" onclick="switchTab('entry')">加速线路</button>
+    <button id="tabExit" onclick="switchTab('exit')">住宅出口（可选）</button>
   </div>
 
   <section id="paneEntry" class="card">
@@ -244,8 +298,8 @@
 
     <div class="row">
       <label class="switch" id="awgLabel"><input type="checkbox" id="awgCheck" onchange="updateSetting({use_awg:this.checked})" /> AWG混淆</label>
-      <button class="btn primary" id="pullFreeBtn" onclick="pullFreeUnderlays()">🔄 一键拉取并优选</button>
-      <button class="btn" id="testAllBtn" onclick="testAllHop1()">⚡ 全部测速</button>
+      <button class="btn primary" id="pullFreeBtn" onclick="pullFreeUnderlays()">一键拉取并优选</button>
+      <button class="btn" id="testAllBtn" onclick="testAllHop1()">全部测速</button>
     </div>
 
     <div class="row" id="importRow">
@@ -268,11 +322,28 @@
     <div class="node-list" id="exitList"></div>
   </section>
 
+  <div id="logsModal" class="modal-mask" onclick="if(event.target===this)closeLogsModal()">
+    <div class="modal">
+      <div class="topbar">
+        <strong>内核运行日志 (core.log)</strong>
+        <div class="row">
+          <button class="btn xs" onclick="refreshLogs()">刷新</button>
+          <button class="btn xs" onclick="closeLogsModal()">关闭</button>
+        </div>
+      </div>
+      <pre id="logsBox" class="logs">加载中...</pre>
+    </div>
+  </div>
+
   <script>
+    const SVG_POWER = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>';
+    const SVG_SPIN = '<svg class="spin" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+
     let STATE = null;
     let ACTIVE_TAB = 'entry';
     let ENTRY_VIEW = '';
     let SHOW_DEAD = false;
+    let _connectingLock = false;
     const _pending = {};
     let _reqSeq = 1;
 
@@ -354,17 +425,28 @@
       return (n / 1048576).toFixed(1) + ' MB';
     }
 
+    function renderRuntimeOnly(rt, lastErr) {
+      const running = !!rt.running;
+      const connecting = !!rt.connecting || _connectingLock;
+      const btn = document.getElementById('powerBtn');
+      btn.classList.toggle('connected', running && !connecting);
+      btn.classList.toggle('connecting', connecting);
+
+      document.getElementById('powerIcon').innerHTML = connecting ? SVG_SPIN : SVG_POWER;
+      document.getElementById('powerLabel').textContent = connecting
+        ? '连接中...'
+        : (running ? '点击断开' : '一键连接');
+      document.getElementById('powerSub').textContent = connecting
+        ? '正在启动双核并建立 VPN 隧道...'
+        : (running
+          ? `已连接 · ${rt.active_hop1 || '直连'} · 上行 ${fmtBytes(rt.upload_total)} · 下行 ${fmtBytes(rt.download_total)}`
+          : (lastErr ? `上次失败：${lastErr}` : '未连接 · 点击一键启动手机加速'));
+    }
+
     function render(st) {
       const s = st.settings || {};
       const rt = st.runtime || {};
-      const running = !!rt.running;
-
-      const btn = document.getElementById('powerBtn');
-      btn.classList.toggle('connected', running);
-      document.getElementById('powerLabel').textContent = running ? '点击断开' : '一键连接';
-      document.getElementById('powerSub').textContent = running
-        ? `已连接 · ${rt.active_hop1 || '直连'} · ↑${fmtBytes(rt.upload_total)} ↓${fmtBytes(rt.download_total)}`
-        : (st.last_error ? `上次失败：${st.last_error}` : '未连接 · 点击一键启动手机加速');
+      renderRuntimeOnly(rt, st.last_error);
 
       document.getElementById('smartAutoCheck').checked = !!s.smart_auto_select;
       document.getElementById('awgCheck').checked = !!s.use_awg;
@@ -407,8 +489,11 @@
         (st.underlay_subs || []).forEach(sub => {
           const d = document.createElement('div');
           d.className = 'node-item';
-          d.innerHTML = `<div class="meta">📦 订阅：${esc(sub.name)} (${sub.count})</div>
-            <button class="btn xs danger" onclick="delSub('${esc(sub.id)}')">删订阅</button>`;
+          d.innerHTML = `<div class="meta">订阅：${esc(sub.name)} (${sub.count})</div>
+            <div class="row" style="gap:4px;">
+              <button class="btn xs" onclick="refreshSub('${esc(sub.id)}')">更新</button>
+              <button class="btn xs danger" onclick="delSub('${esc(sub.id)}')">删订阅</button>
+            </div>`;
           list.appendChild(d);
         });
       }
@@ -418,17 +503,19 @@
         (st.custom_underlays || []).forEach(x => rows.push({
           title: x.name, meta: `自建 ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
           sel: s.underlay_strategy === 'manual' && s.selected_underlay === x.name,
-          delId: x.id,
+          kind: 'custom', id: x.id, delId: x.id,
         }));
         (st.sub_underlays || []).forEach(x => rows.push({
           title: x.name, meta: `订阅 ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
           sel: s.underlay_strategy === 'manual' && s.selected_underlay === x.name,
+          kind: 'sub', id: '',
         }));
       }
       if (includePub) {
         (st.public_backups || []).forEach(x => rows.push({
           title: x.name, meta: `公益 ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
           sel: s.underlay_strategy === 'manual' && s.selected_underlay === x.name,
+          kind: 'public', id: x.id,
         }));
       }
       if (includeWarp) {
@@ -437,6 +524,7 @@
           rows.push({
             title: name, meta: `WARP ${ep.ip}:${ep.port}`, delay: ep.delay_ms, speed: ep.speed_mbps,
             sel: s.underlay_strategy === 'manual' && s.selected_underlay === name,
+            kind: 'warp', id: '',
           });
         });
       }
@@ -455,10 +543,17 @@
         d.className = 'node-item' + (r.sel ? ' selected' : '');
         d.onclick = () => selectUnderlay(r.title);
         d.innerHTML = `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-            <strong>${r.sel ? '✅ ' : ''}${esc(r.title)}</strong>${metricsHtml(r.delay, r.speed)}
+            <strong>${r.sel ? '[当前] ' : ''}${esc(r.title)}</strong>${metricsHtml(r.delay, r.speed)}
             <div class="meta">${esc(r.meta)}</div>
           </div>
-          ${r.delId ? `<button class="btn xs danger" onclick="event.stopPropagation();delUnderlay('${esc(r.delId)}')">删</button>` : ''}`;
+          <div class="row" style="gap:4px;flex-shrink:0;">
+            <button class="btn xs test-btn">测速</button>
+            ${r.delId ? `<button class="btn xs danger del-btn">删</button>` : ''}
+          </div>`;
+        d.querySelector('.test-btn').onclick = (ev) => { ev.stopPropagation(); testSingle(r.kind, r.id || '', r.title); };
+        if (r.delId) {
+          d.querySelector('.del-btn').onclick = (ev) => { ev.stopPropagation(); delUnderlay(r.delId); };
+        }
         list.appendChild(d);
       });
 
@@ -475,7 +570,7 @@
       if (!rows.length && !(includeUser && (st.underlay_subs || []).length)) {
         list.innerHTML = view === 'custom_only'
           ? '<div class="empty-tip">请在上方粘贴导入你的节点链接或订阅 URL</div>'
-          : '<div class="empty-tip"><div>还没有拉取免费节点</div><button class="btn primary" onclick="pullFreeUnderlays()">🔄 一键拉取并优选</button></div>';
+          : '<div class="empty-tip"><div>还没有拉取免费节点</div><button class="btn primary" onclick="pullFreeUnderlays()">一键拉取并优选</button></div>';
       }
     }
 
@@ -493,90 +588,163 @@
         const d = document.createElement('div');
         d.className = 'node-item' + (sel ? ' selected' : '');
         d.onclick = () => updateSetting({ use_exit_hop: true, selected_exit_id: e.id });
-        d.innerHTML = `<div><strong>${sel ? '✅ ' : ''}${esc(e.name)}</strong><div class="meta">${esc(e.type)} ${esc(e.server)}:${esc(e.port)}</div></div>
+        d.innerHTML = `<div><strong>${sel ? '[当前] ' : ''}${esc(e.name)}</strong><div class="meta">${esc(e.type)} ${esc(e.server)}:${esc(e.port)}</div></div>
           <button class="btn xs danger" onclick="event.stopPropagation();delExit('${esc(e.id)}')">删</button>`;
         list.appendChild(d);
       });
     }
 
-    async function updateSetting(patch) {
-      STATE = await callNative('settings', patch);
+    // 乐观 UI：先就地更新本地状态并立即重绘，后台异步落盘，消除按钮点击迟滞
+    function applyOptimisticPatch(patch) {
+      if (!STATE) return;
+      STATE.settings = Object.assign({}, STATE.settings || {}, patch);
       render(STATE);
     }
-    async function setStrategy(s) {
-      ENTRY_VIEW = s;
-      await updateSetting({ underlay_strategy: s });
-    }
-    async function setRouteMode(r) {
-      await updateSetting({ route_mode: r });
-    }
-    async function selectUnderlay(name) {
-      await callNative('select_underlay', { name });
-      await refreshState();
-    }
-    async function toggleConnect() {
+
+    async function updateSetting(patch) {
+      applyOptimisticPatch(patch);
       try {
-        if (STATE && STATE.runtime && STATE.runtime.running) {
-          setBanner('⏳ 正在断开连接...');
-          await callNative('disconnect');
-          setBanner('已断开连接', 'ok');
-        } else {
-          setBanner('⏳ 正在启动 VPN 加速通道...');
-          await callNative('connect');
-          setBanner('✅ 已发起连接', 'ok');
-        }
-        setTimeout(refreshState, 900);
+        await callNative('settings', patch);
       } catch (e) {
-        setBanner('❌ ' + e.message, 'err');
+        setBanner(e.message, 'err');
+        refreshState();
       }
     }
+    function setStrategy(s) {
+      ENTRY_VIEW = s;
+      updateSetting({ underlay_strategy: s });
+    }
+    function setRouteMode(r) {
+      updateSetting({ route_mode: r });
+    }
+    async function selectUnderlay(name) {
+      applyOptimisticPatch({ selected_underlay: name, underlay_strategy: 'manual' });
+      try {
+        await callNative('select_underlay', { name });
+      } catch (e) {
+        setBanner(e.message, 'err');
+      }
+    }
+
+    async function waitConnectResult() {
+      for (let i = 0; i < 25; i++) {
+        await new Promise(r => setTimeout(r, 380));
+        const res = await callNative('runtime');
+        const rt = res.runtime || {};
+        if (STATE) {
+          STATE.runtime = rt;
+          STATE.last_error = res.last_error;
+        }
+        if (rt.running) {
+          _connectingLock = false;
+          renderRuntimeOnly(rt, '');
+          setBanner('已连接成功，可以开始加速或检测出口 IP', 'ok');
+          return;
+        }
+        if (!rt.connecting && res.last_error) {
+          _connectingLock = false;
+          renderRuntimeOnly(rt, res.last_error);
+          setBanner('连接失败：' + res.last_error, 'err');
+          return;
+        }
+      }
+      _connectingLock = false;
+      const finalRes = await callNative('runtime');
+      renderRuntimeOnly(finalRes.runtime || {}, finalRes.last_error || '');
+    }
+
+    async function toggleConnect() {
+      if (_connectingLock) return;
+      try {
+        if (STATE && STATE.runtime && STATE.runtime.running) {
+          setBanner('正在断开连接...');
+          await callNative('disconnect');
+          if (STATE) STATE.runtime.running = false;
+          renderRuntimeOnly({ running: false, connecting: false }, '');
+          setBanner('已断开连接', 'ok');
+        } else {
+          _connectingLock = true;
+          renderRuntimeOnly({ running: false, connecting: true }, '');
+          setBanner('正在启动 VPN 加速通道...');
+          await callNative('connect');
+          waitConnectResult();
+        }
+      } catch (e) {
+        _connectingLock = false;
+        renderRuntimeOnly({ running: false, connecting: false }, e.message);
+        setBanner(e.message, 'err');
+      }
+    }
+
     async function pullFreeUnderlays() {
-      setBanner('⏳ 第 1/2 步：正在注册 WARP 并拉取免费加速节点...');
+      setBanner('第 1/2 步：正在注册 WARP 并拉取免费加速节点...');
       try {
         const p = await callNative('pull_free');
         await refreshState();
-        setBanner(`⏳ 第 2/2 步：已拉取 ${p.warp_count} WARP + ${p.public_count} 公益节点，正在测速优选...`);
+        setBanner(`第 2/2 步：已拉取 ${p.warp_count} WARP + ${p.public_count} 公益节点，正在极速优选...`);
         const kind = getActiveView(STATE) === 'warp_only' ? 'warp' : (getActiveView(STATE) === 'public_only' ? 'public' : 'free');
         const t = await callNative('test_all', { kind, test_speed: true });
         await refreshState();
-        setBanner(`✅ 拉取并优选完成：可用 ${t.alive}/${t.tested} 个节点${t.best_name ? ' · 最快 ' + t.best_name : ''}`, 'ok');
+        setBanner(`优选完成：可用 ${t.alive}/${t.tested} 个节点${t.best_name ? ' · 最快 ' + t.best_name : ''}`, 'ok');
       } catch (e) {
-        setBanner('❌ ' + e.message, 'err');
+        setBanner(e.message, 'err');
       }
     }
+
     async function testAllHop1() {
       const view = getActiveView(STATE);
       if (view === 'direct') return;
       const map = { warp_only: 'warp', public_only: 'public', custom_only: 'user', auto_free: 'free' };
-      setBanner('⏳ 正在并发测速当前分类节点...');
+      setBanner('正在极速并发测速当前分类节点...');
       try {
         const t = await callNative('test_all', { kind: map[view] || 'free', test_speed: true });
         await refreshState();
-        setBanner(`✅ 测速完成：可用 ${t.alive}/${t.tested} 个节点${t.best_name ? ' · 最快 ' + t.best_name : ''}`, 'ok');
+        setBanner(`测速完成：可用 ${t.alive}/${t.tested} 个节点${t.best_name ? ' · 最快 ' + t.best_name : ''}`, 'ok');
       } catch (e) {
-        setBanner('❌ ' + e.message, 'err');
+        setBanner(e.message, 'err');
       }
     }
+
+    async function testSingle(kind, id, name) {
+      setBanner(`正在测速：${name}...`);
+      try {
+        const t = await callNative('test_all', { kind, id, name, test_speed: true });
+        await refreshState();
+        setBanner(t.alive > 0 ? `${name} 测速完成：${t.best_ms}ms` : `${name} 不可用/超时`, t.alive > 0 ? 'ok' : 'err');
+      } catch (e) {
+        setBanner(e.message, 'err');
+      }
+    }
+
     async function importUnderlay() {
       const raw = document.getElementById('underlayInput').value.trim();
       if (!raw) return;
       try {
         if (/^https?:\/\/\S+$/i.test(raw) && !raw.includes('@')) {
-          setBanner('⏳ 正在拉取订阅...');
+          setBanner('正在拉取订阅...');
           const r = await callNative('add_sub', { url: raw });
-          setBanner(`✅ 已导入订阅 ${r.count} 个节点`, 'ok');
+          setBanner(`已导入订阅 ${r.count} 个节点`, 'ok');
         } else {
           const r = await callNative('add_underlay', { text: raw });
-          setBanner(`✅ 已添加 ${r.added} 条节点`, 'ok');
+          setBanner(`已添加 ${r.added} 条节点`, 'ok');
         }
         document.getElementById('underlayInput').value = '';
         ENTRY_VIEW = 'custom_only';
-        await updateSetting({ underlay_strategy: 'custom_only' });
+        await callNative('settings', { underlay_strategy: 'custom_only' });
+        await refreshState();
       } catch (e) {
-        setBanner('❌ ' + e.message, 'err');
+        setBanner(e.message, 'err');
       }
     }
     async function delUnderlay(id) { await callNative('del_underlay', { id }); await refreshState(); }
+    async function refreshSub(id) {
+      setBanner('正在更新订阅...');
+      try {
+        const r = await callNative('refresh_sub', { id });
+        await refreshState();
+        setBanner(`订阅已更新（${r.count} 节点）`, 'ok');
+      } catch (e) { setBanner(e.message, 'err'); }
+    }
     async function delSub(id) { await callNative('del_sub', { id }); await refreshState(); }
     async function addExit() {
       const raw = document.getElementById('exitRawInput').value.trim();
@@ -598,8 +766,32 @@
       }
     }
 
+    function openLogsModal() {
+      document.getElementById('logsModal').classList.add('open');
+      refreshLogs();
+    }
+    function closeLogsModal() {
+      document.getElementById('logsModal').classList.remove('open');
+    }
+    async function refreshLogs() {
+      try {
+        const r = await callNative('logs', { lines: 120 });
+        document.getElementById('logsBox').textContent = r.logs || '暂无日志';
+      } catch (e) {
+        document.getElementById('logsBox').textContent = e.message;
+      }
+    }
+
     refreshState();
-    setInterval(() => { if (STATE && STATE.runtime && STATE.runtime.running) refreshState(); }, 2500);
+    // 仅轮询轻量运行态与流量，绝不重建下方节点列表 DOM，避免吞掉用户点击
+    setInterval(async () => {
+      if (_connectingLock || !STATE || !STATE.runtime || !STATE.runtime.running) return;
+      try {
+        const res = await callNative('runtime');
+        STATE.runtime = res.runtime || {};
+        renderRuntimeOnly(STATE.runtime, res.last_error);
+      } catch (e) {}
+    }, 2500);
   </script>
 </body>
 </html>

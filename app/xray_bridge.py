@@ -305,15 +305,16 @@ class XrayBridgeProcess:
 
 
 def should_bridge_via_xray(core_dir: Path, node: dict[str, Any]) -> bool:
-    """判断节点是否应通过 Xray-core 桥接（含 Xray 专属协议及当 xray.exe 就绪时的 Reality / XHTTP 节点）。"""
+    """判断节点是否应通过 Xray-core 桥接（含 Xray 专属协议、XHTTP 及带 spider-x 的 Reality 节点）。"""
     if node_parser.is_xray_only_node(node):
         return True
     xray_exists = (core_dir / "xray.exe").is_file()
     if not xray_exists:
         return False
-    if isinstance(node.get("reality-opts"), dict) and node["reality-opts"].get("public-key"):
-        return True
     if str(node.get("network") or "").lower() == "xhttp":
+        return True
+    ro = node.get("reality-opts")
+    if isinstance(ro, dict) and ro.get("public-key") and ro.get("spider-x"):
         return True
     return False
 

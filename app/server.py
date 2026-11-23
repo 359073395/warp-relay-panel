@@ -1321,6 +1321,15 @@ def create_handler(store: PanelStore) -> type[BaseHTTPRequestHandler]:
                 self._send_json(store.get_full_state(log_filter=log_filter))
                 return
 
+            if parsed.path == "/api/runtime":
+                self._send_json({
+                    "ok": True,
+                    "runtime": store.mgr.get_runtime_status(),
+                    "smart_status": dict(store.smart_state),
+                    "core_download": dict(store.core_dl_state),
+                })
+                return
+
             if parsed.path == "/api/core/status":
                 self._send_json({
                     "ok": True,
@@ -1344,8 +1353,17 @@ def create_handler(store: PanelStore) -> type[BaseHTTPRequestHandler]:
                 body = self._read_body_json()
                 if path == "/api/settings":
                     new_s = store.save_settings(body)
-                    if store.mgr.is_running() and body.get("auto_apply", True):
-                        store.connect()
+                    routing_keys = {
+                        "proxy_mode", "route_mode", "underlay_strategy", "selected_underlay",
+                        "use_exit_hop", "exit_source", "selected_exit_id", "selected_vpngate_id",
+                        "use_awg", "enable_public_backup", "allow_lan", "ipv6",
+                        "mixed_port", "custom_rules",
+                    }
+                    if store.mgr.is_running() and body.get("auto_apply", True) and (routing_keys & set(body.keys())):
+                        if body.get("sync", False):
+                            store.connect()
+                        else:
+                            threading.Thread(target=lambda: store.connect(), daemon=True).start()
                     self._send_json({"ok": True, "settings": new_s})
                 elif path == "/api/connect":
                     self._send_json(store.connect(smart_pick=bool(body.get("smart_pick", False))))

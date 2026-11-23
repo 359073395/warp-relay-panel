@@ -41,10 +41,14 @@ class TestServerStoreAndHttp(unittest.TestCase):
         self.assertFalse(cs["ready"])
         self.assertFalse(cs["has_exe"])
 
-        # GET /api/state
+        # GET /api/state & /api/runtime
         st = self._req("/api/state")
         self.assertIn("core_status", st)
         self.assertIn("settings", st)
+        rt = self._req("/api/runtime")
+        self.assertTrue(rt["ok"])
+        self.assertIn("runtime", rt)
+        self.assertIn("smart_status", rt)
 
         # Add, edit, delete custom underlay
         r1 = self._req("/api/underlay/add", {"text": "socks5://u:p@1.2.3.4:1080#MyRelay"})

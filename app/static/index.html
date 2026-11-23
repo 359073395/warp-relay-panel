@@ -97,6 +97,8 @@
     .chip-btn:hover { border-color: rgba(96, 165, 250, 0.5); color: #fff; }
     .chip-btn.active { background: rgba(59, 130, 246, 0.18); border-color: rgba(59, 130, 246, 0.45); color: #93c5fd; }
     .chip-btn.warn { border-color: rgba(245, 158, 11, 0.45); color: #fbbf24; background: rgba(245, 158, 11, 0.12); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.9s linear infinite; }
 
     /* 右侧主区域 */
     .main {
@@ -226,7 +228,9 @@
 
       <div class="power-zone">
         <button id="powerBtn" class="power-btn" onclick="toggleConnect()">
-          <span style="font-size:22px;">⏻</span>
+          <span id="powerIcon" style="display:inline-flex;align-items:center;justify-content:center;">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>
+          </span>
           <span id="powerLabel">一键连接</span>
         </button>
         <div id="powerSub" class="power-sub">未连接</div>
@@ -856,16 +860,14 @@
       acts.appendChild(b);
     }
 
-    function render(state) {
-      STATE = state;
-      const s = state.settings;
-      const rt = state.runtime;
-      const cs = state.core_status || {};
+    const SVG_POWER = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>';
+    const SVG_SPIN = '<svg class="spin" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
 
-      // Power button
+    function renderRuntimeOnly(rt, smartStatus) {
       const pBtn = document.getElementById('powerBtn');
       const pLbl = document.getElementById('powerLabel');
       const pSub = document.getElementById('powerSub');
+      const pIcon = document.getElementById('powerIcon');
       if (rt.running) {
         pBtn.classList.add('connected');
         pLbl.textContent = '已连接';
@@ -878,6 +880,27 @@
         pSub.textContent = '未连接';
         document.getElementById('trafficLine').style.display = 'none';
       }
+      if (!pBtn.disabled && pIcon) pIcon.innerHTML = SVG_POWER;
+      if (STATE && STATE.settings && smartStatus) {
+        const smLine = document.getElementById('smartMetaLine');
+        if (smartStatus.running) {
+          smLine.style.display = 'block';
+          smLine.textContent = '⏳ 后台正在智能测速优选...';
+        } else if (STATE.settings.smart_auto_select && smartStatus.last_summary) {
+          smLine.style.display = 'block';
+          smLine.textContent = `上次优选 ${smartStatus.last_run_at}: ${smartStatus.last_summary}`;
+        }
+      }
+    }
+
+    function render(state) {
+      STATE = state;
+      const s = state.settings;
+      const rt = state.runtime;
+      const cs = state.core_status || {};
+
+      // Power button
+      renderRuntimeOnly(rt, state.smart_status || {});
 
       // Summary card
       const stratLabels = {
@@ -974,11 +997,19 @@
       } catch (e) { showToast(e.message, true); }
     }
 
+    function applyOptimisticSettings(patch) {
+      if (!STATE) return;
+      STATE.settings = Object.assign({}, STATE.settings || {}, patch);
+      render(STATE);
+    }
+
     async function updateSetting(patch) {
+      applyOptimisticSettings(patch);
       try {
         await api('/api/settings', patch);
-        await refreshState();
-        if (STATE && STATE.runtime.running) runDiagnose();
+        if (STATE && STATE.runtime && STATE.runtime.running && patch.auto_apply !== false) {
+          setTimeout(() => { pollRuntime(); }, 700);
+        }
       } catch (e) {
         showToast(e.message, true);
         await refreshState();
@@ -1014,10 +1045,10 @@
           else if (name.startsWith('公益-')) ENTRY_VIEW = 'public_only';
           else ENTRY_VIEW = 'custom_only';
         }
-        await api('/api/underlay/select', { name });
+        applyOptimisticSettings({ underlay_strategy: 'manual', selected_underlay: name });
         showToast(`已选用加速节点：${name}`);
-        await refreshState();
-        if (STATE && STATE.runtime.running) runDiagnose();
+        await api('/api/underlay/select', { name });
+        if (STATE && STATE.runtime.running) pollRuntime();
       } catch (e) { showToast(e.message, true); }
     }
 
@@ -1051,6 +1082,7 @@
     async function toggleConnect() {
       const btn = document.getElementById('powerBtn');
       const lbl = document.getElementById('powerLabel');
+      const icon = document.getElementById('powerIcon');
       const smartPick = !!(STATE && STATE.settings && STATE.settings.smart_auto_select);
       btn.disabled = true;
       try {
@@ -1059,6 +1091,7 @@
           LAST_DIAG = null;
           showToast('已断开连接');
         } else {
+          if (icon) icon.innerHTML = SVG_SPIN;
           lbl.textContent = smartPick ? '智能优选...' : '连接中...';
           if (smartPick) {
             setTaskStatus('⏳ 已勾选「智能选择节点」，正在更新节点并测速挑选最优线路后连接...', 'busy');
@@ -1077,6 +1110,7 @@
         showToast(e.message, true);
       } finally {
         btn.disabled = false;
+        if (icon) icon.innerHTML = SVG_POWER;
         await refreshState();
       }
     }
@@ -1273,8 +1307,19 @@
       catch (e) { showToast(e.message, true); }
     }
 
+    async function pollRuntime() {
+      try {
+        const r = await api('/api/runtime');
+        if (STATE) {
+          STATE.runtime = r.runtime || STATE.runtime;
+          STATE.smart_status = r.smart_status || STATE.smart_status;
+          renderRuntimeOnly(STATE.runtime, STATE.smart_status);
+        }
+      } catch (e) {}
+    }
+
     refreshState();
-    setInterval(() => { if (STATE && STATE.runtime && STATE.runtime.running) refreshState(); }, 3500);
+    setInterval(() => { if (STATE && STATE.runtime && STATE.runtime.running) pollRuntime(); }, 3000);
   </script>
 </body>
 </html>

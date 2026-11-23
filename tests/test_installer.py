@@ -21,7 +21,8 @@ class TestInstaller(unittest.TestCase):
                 zf.writestr("core/mihomo.exe", b"MIHOMO")
                 zf.writestr("data/settings.json", '{"keep": false}')
 
-            with mock.patch("installer.create_shortcut") as m_lnk:
+            with mock.patch("installer.create_shortcut") as m_lnk, \
+                 mock.patch("installer.register_uninstall_entry") as m_reg:
                 exe = installer.perform_install(
                     install_dir=install_dir,
                     create_desktop=True,
@@ -34,7 +35,9 @@ class TestInstaller(unittest.TestCase):
             self.assertEqual(exe.read_bytes(), b"MZ_TEST")
             self.assertEqual((install_dir / "core" / "mihomo.exe").read_bytes(), b"MIHOMO")
             self.assertEqual((install_dir / "data" / "settings.json").read_text(encoding="utf-8"), '{"keep": true}')
+            self.assertTrue((install_dir / "uninstall.ps1").exists())
             self.assertEqual(m_lnk.call_count, 2)
+            m_reg.assert_called_once()
 
             bad_payload = tmp_path / "bad.zip"
             with zipfile.ZipFile(bad_payload, "w") as zf:

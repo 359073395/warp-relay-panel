@@ -97,6 +97,12 @@ class TestXrayBridgeAndExtraProtocols(unittest.TestCase):
             self.assertEqual(cfg["outbounds"][0]["streamSettings"]["security"], "reality")
             self.assertEqual(cfg["outbounds"][0]["streamSettings"]["realitySettings"]["spiderX"], "/abc")
 
+            plain_rel = node_parser.parse_proxy_uri(
+                "vless://11111111-1111-1111-1111-111111111111@1.2.3.4:443"
+                "?security=reality&sni=www.cloudflare.com&fp=chrome&pbk=PUB&sid=1234&type=tcp#PlainRel"
+            )
+            self.assertFalse(xray_bridge.should_bridge_via_xray(core_dir, plain_rel))
+
 
 if __name__ == "__main__":
     unittest.main()

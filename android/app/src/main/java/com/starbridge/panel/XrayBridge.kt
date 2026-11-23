@@ -15,7 +15,9 @@ object XrayBridge {
         if (NodeParser.isXrayOnlyNode(proxy)) return true
         val ptype = proxy["type"]?.toString()?.lowercase() ?: ""
         val net = proxy["network"]?.toString()?.lowercase() ?: ""
-        if (ptype == "vless" && (proxy.containsKey("reality-opts") || net == "xhttp")) return true
+        if (net == "xhttp") return true
+        val ro = proxy["reality-opts"] as? Map<*, *>
+        if (ptype == "vless" && ro != null && !ro["spider-x"]?.toString().isNullOrBlank()) return true
         return false
     }
 

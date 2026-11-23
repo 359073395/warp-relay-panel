@@ -42,6 +42,26 @@ class TestAndroidProjectAndWorkflow(unittest.TestCase):
         self.assertIn("build-android", jobs)
         self.assertIn("release", jobs)
 
+    def test_android_and_desktop_ui_no_missing_power_glyph_and_perf_configs(self) -> None:
+        android_html = (ROOT / "android" / "app" / "src" / "main" / "assets" / "web" / "index.html").read_text(encoding="utf-8")
+        desktop_html = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn("\u23fb", android_html)
+        self.assertNotIn("\u23fb", desktop_html)
+        self.assertIn("<svg", android_html)
+        self.assertIn("<svg", desktop_html)
+
+        core_mgr = (ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "CoreManager.kt").read_text(encoding="utf-8")
+        self.assertIn('"find-process-mode" to "off"', core_mgr)
+        self.assertIn('"sniffer"', core_mgr)
+        self.assertIn("hotReloadConfig", core_mgr)
+
+        vpn_svc = (ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "StarBridgeVpnService.kt").read_text(encoding="utf-8")
+        self.assertIn("mapdns:", vpn_svc)
+        self.assertIn("setMetered(false)", vpn_svc)
+
+        self.assertTrue((ROOT / "android" / "app" / "src" / "main" / "res" / "mipmap-anydpi-v26" / "ic_launcher.xml").exists())
+        self.assertTrue((ROOT / "android" / "app" / "src" / "main" / "res" / "drawable" / "ic_launcher_fg.xml").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

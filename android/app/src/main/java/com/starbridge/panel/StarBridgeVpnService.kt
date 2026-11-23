@@ -38,6 +38,7 @@ class StarBridgeVpnService : VpnService() {
             stopVpn()
             return START_NOT_STICKY
         }
+        CoreHolder.get(this).connecting = true
         startForegroundNotif("正在连接星桥加速通道...")
         scope.launch {
             startVpn()
@@ -96,6 +97,7 @@ class StarBridgeVpnService : VpnService() {
         val core = CoreHolder.get(this)
         try {
             lastError = ""
+            core.connecting = true
             core.startCore()
 
             val builder = Builder()
@@ -104,6 +106,9 @@ class StarBridgeVpnService : VpnService() {
                 .addAddress("198.18.0.1", 32)
                 .addRoute("0.0.0.0", 0)
                 .addDnsServer("198.18.0.2")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                builder.setMetered(false)
+            }
             runCatching { builder.addDisallowedApplication(packageName) }
 
             val pfd = builder.establish() ?: error("系统拒绝建立 VPN 虚拟网卡")
@@ -121,6 +126,12 @@ class StarBridgeVpnService : VpnService() {
                   port: ${CoreManager.MIXED_PORT}
                   address: 127.0.0.1
                   udp: 'udp'
+                mapdns:
+                  address: 198.18.0.2
+                  port: 53
+                  network: 100.64.0.0
+                  netmask: 255.192.0.0
+                  cache-size: 10000
                 misc:
                   task-stack-size: 86016
                   connect-timeout: 10000
