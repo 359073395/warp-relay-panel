@@ -73,6 +73,10 @@ class TestAndroidProjectAndWorkflow(unittest.TestCase):
         self.assertIn("mapdns:", vpn_svc)
         self.assertIn("setMetered(false)", vpn_svc)
 
+        main_act = (ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "MainActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("StarBridge-update.apk", main_act)
+        self.assertIn("copyTo(dest, overwrite = true)", core_mgr)
+
         self.assertTrue((ROOT / "android" / "app" / "src" / "main" / "res" / "mipmap-anydpi-v26" / "ic_launcher.xml").exists())
         self.assertTrue((ROOT / "android" / "app" / "src" / "main" / "res" / "drawable" / "ic_launcher_fg.xml").exists())
 

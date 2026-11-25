@@ -115,14 +115,14 @@ def safe_extract_zip(
             dest.parent.mkdir(parents=True, exist_ok=True)
             import time as _time
             written = False
-            for attempt in range(12):
+            for attempt in range(24):
                 try:
                     with zf.open(info, "r") as src, dest.open("wb") as dst:
                         shutil.copyfileobj(src, dst, length=1024 * 128)
                     written = True
                     break
                 except PermissionError as exc:
-                    if attempt == 11:
+                    if attempt == 23:
                         raise RuntimeError(f"无法写入 {dest.name}，请先退出正在运行的 {APP_NAME}.exe 后重试。") from exc
                     _time.sleep(0.5)
             if not written:
@@ -168,7 +168,7 @@ def register_uninstall_entry(install_dir: Path, exe_path: Path, uninst_ps1: Path
         winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, str(exe_path))
         winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(install_dir))
         winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "StarBridge")
-        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "2.2.3")
+        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "2.2.4")
         winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, cmd)
         winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
         winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)
@@ -206,7 +206,11 @@ def perform_install(
         subprocess.Popen(
             [str(exe_path)],
             cwd=str(install_dir),
-            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
         )
     return exe_path
 

@@ -84,6 +84,41 @@ class TestUpdater(unittest.TestCase):
             "https://github.com/359073395/warp-relay-panel/releases/download/v2.3.1/StarBridge-android-arm64.apk",
         )
 
+    def test_launch_windows_silent_upgrade_uses_compatible_flags(self) -> None:
+        import base64
+        import subprocess
+
+        with mock.patch.object(updater.sys, "platform", "win32"), \
+             mock.patch.object(updater.subprocess, "Popen") as m_popen:
+            updater.launch_windows_silent_upgrade(
+                Path(r"C:\Temp\StarBridge-Setup-Update.exe"),
+                Path(r"D:\StarBridge"),
+                wait_pid=12345,
+            )
+
+        m_popen.assert_called_once()
+        args, kwargs = m_popen.call_args
+        cmd = args[0]
+        self.assertEqual(cmd[0], "powershell.exe")
+        self.assertIn("-EncodedCommand", cmd)
+        encoded = cmd[cmd.index("-EncodedCommand") + 1]
+        script = base64.b64decode(encoded).decode("utf-16le")
+        self.assertIn("Wait-Process -Id 12345", script)
+        self.assertIn("--silent", script)
+        self.assertIn("--launch", script)
+
+        flags = int(kwargs.get("creationflags", 0))
+        create_no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        detached = getattr(subprocess, "DETACHED_PROCESS", 0)
+        new_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        if create_no_window:
+            self.assertTrue(flags & create_no_window)
+        if create_no_window and detached:
+            self.assertFalse(bool(flags & detached))
+        if new_group:
+            self.assertTrue(flags & new_group)
+        self.assertTrue(kwargs.get("close_fds"))
+
 
 if __name__ == "__main__":
     unittest.main()

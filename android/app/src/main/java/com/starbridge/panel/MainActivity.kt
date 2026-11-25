@@ -34,9 +34,9 @@ class MainActivity : AppCompatActivity() {
     private val installPermLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { _ ->
-        val apk = pendingApkFile
+        val apk = pendingApkFile ?: File(File(filesDir, "updates"), "StarBridge-update.apk")
         pendingApkFile = null
-        if (apk != null && apk.exists() && packageManager.canRequestPackageInstalls()) {
+        if (apk.exists() && packageManager.canRequestPackageInstalls()) {
             launchApkInstaller(apk)
         }
     }

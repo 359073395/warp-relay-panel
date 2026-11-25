@@ -505,7 +505,11 @@ class CoreManager(private val context: Context) {
                         error("下载的安装包无效")
                     }
                     if (dest.exists()) dest.delete()
-                    tmp.renameTo(dest)
+                    if (!tmp.renameTo(dest)) {
+                        tmp.copyTo(dest, overwrite = true)
+                        runCatching { tmp.delete() }
+                    }
+                    if (!dest.isFile || dest.length() <= 0L) error("保存更新包失败")
                     updateProgress = 100
                     updateMessage = "下载完成，正在拉起系统安装..."
                     return dest

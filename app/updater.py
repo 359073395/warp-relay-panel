@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-APP_VERSION = "2.2.3"
+APP_VERSION = "2.2.4"
 GITHUB_LATEST_API = "https://api.github.com/repos/359073395/warp-relay-panel/releases/latest"
 GITHUB_RELEASES_ATOM = "https://github.com/359073395/warp-relay-panel/releases.atom"
 GH_MIRRORS = ["", "https://gh-proxy.com/"]
@@ -184,12 +184,30 @@ def launch_windows_silent_upgrade(
     pid = int(wait_pid or os.getpid())
     s_exe = str(setup_exe).replace("'", "''")
     s_dir = str(install_dir).replace("'", "''")
+    target_exe = str((install_dir / "StarBridge.exe").resolve()).replace("'", "''")
+    log_path = str((Path(setup_exe).resolve().parent / "StarBridge-Update.log")).replace("'", "''")
     ps_script = (
+        f"$log = '{log_path}'; "
+        "try { "
         f"try {{ Wait-Process -Id {pid} -Timeout 15 -ErrorAction SilentlyContinue }} catch {{}}; "
-        "Start-Sleep -Milliseconds 500; "
-        f"Start-Process -FilePath '{s_exe}' -ArgumentList '--silent','--dir','{s_dir}','--no-desktop','--no-start-menu','--launch'"
+        f"$targetExe = '{target_exe}'; "
+        "$deadline = (Get-Date).AddSeconds(10); "
+        "while ((Get-Date) -lt $deadline) { "
+        "  $alive = Get-Process -Name 'StarBridge' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $targetExe }; "
+        "  if (-not $alive) { break }; "
+        "  Start-Sleep -Milliseconds 300 "
+        "}; "
+        "Start-Sleep -Milliseconds 400; "
+        f"Start-Process -FilePath '{s_exe}' -ArgumentList '--silent','--dir','{s_dir}','--no-desktop','--no-start-menu','--launch'; "
+        "'launched' | Out-File -FilePath $log -Encoding utf8 "
+        "} catch { "
+        "$_ | Out-File -FilePath $log -Encoding utf8 "
+        "}"
     )
     encoded = base64.b64encode(ps_script.encode("utf-16le")).decode("ascii")
+    # CREATE_NO_WINDOW and DETACHED_PROCESS are mutually exclusive on Windows;
+    # combining them causes powershell.exe to exit silently without running.
+    creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen(
         [
             "powershell.exe",
@@ -201,5 +219,9 @@ def launch_windows_silent_upgrade(
             "-EncodedCommand",
             encoded,
         ],
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=creation_flags,
     )
