@@ -6,243 +6,199 @@
   <title>星桥 · StarBridge</title>
   <style>
     :root {
-      --bg: #090e1a;
-      --panel: #111827;
-      --card: #172033;
-      --border: rgba(255, 255, 255, 0.08);
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --blue: #3b82f6;
-      --green: #10b981;
-      --red: #ef4444;
-      --amber: #f59e0b;
+      --text: rgba(255, 255, 255, 0.96);
+      --sec: rgba(242, 244, 248, 0.68);
+      --tert: rgba(242, 244, 248, 0.42);
+      --glass: rgba(255, 255, 255, 0.085);
+      --border: rgba(255, 255, 255, 0.17);
+      --border-soft: rgba(255, 255, 255, 0.10);
+      --ios-blue: #0A84FF;
+      --ios-green: #30D158;
+      --ios-orange: #FF9F0A;
+      --ios-red: #FF453A;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
-      background: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
       color: var(--text);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      padding: 12px;
-      gap: 12px;
+      padding: 13px;
+      gap: 11px;
+      background:
+        radial-gradient(circle at 22% 18%, rgba(96, 165, 250, 0.30) 0%, transparent 48%),
+        radial-gradient(circle at 80% 72%, rgba(45, 212, 191, 0.20) 0%, transparent 46%),
+        linear-gradient(155deg, #0c1424 0%, #101b30 55%, #0a111f 100%);
     }
-    .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .brand { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+    .sb-logo {
+      width: 26px; height: 26px; border-radius: 7px; object-fit: cover;
+      transition: filter 0.25s ease, opacity 0.25s ease;
     }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 16px;
-      font-weight: 800;
-      white-space: nowrap;
-    }
-    .brand img { width: 26px; height: 26px; border-radius: 6px; }
+    .sb-logo.idle { filter: grayscale(1) brightness(0.92) contrast(1.06); opacity: 0.82; }
+    .sb-logo.busy { filter: hue-rotate(192deg) saturate(1.55) brightness(1.06); opacity: 1; }
+    .sb-logo.on   { filter: hue-rotate(-52deg) saturate(1.28) brightness(1.04); opacity: 1; }
+
     .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .power-zone {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      padding: 16px 12px;
-      background: var(--card);
+      background: var(--glass);
       border: 1px solid var(--border);
       border-radius: 16px;
+      padding: 12px;
+      backdrop-filter: blur(26px) saturate(170%);
+      -webkit-backdrop-filter: blur(26px) saturate(170%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .power-zone {
+      display: flex; flex-direction: column; align-items: center; gap: 9px;
+      padding: 15px 12px;
+      background: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      backdrop-filter: blur(26px) saturate(170%);
+      -webkit-backdrop-filter: blur(26px) saturate(170%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.20);
     }
     .power-btn {
-      width: 112px;
-      height: 112px;
-      border-radius: 999px;
-      border: 3px solid rgba(59, 130, 246, 0.45);
-      background: linear-gradient(145deg, #1d4ed8, #2563eb);
-      color: #fff;
-      font-size: 14px;
-      font-weight: 700;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      box-shadow: 0 0 24px rgba(37, 99, 235, 0.35);
+      width: 102px; height: 102px; border-radius: 999px;
+      border: 1.5px solid rgba(90, 175, 255, 0.48);
+      background: radial-gradient(circle at 30% 25%, rgba(10, 132, 255, 0.34), rgba(10, 132, 255, 0.12));
+      color: #fff; font-size: 13px; font-weight: 600;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+      box-shadow: 0 10px 28px rgba(10, 132, 255, 0.20), inset 0 1px 2px rgba(255, 255, 255, 0.35);
       transition: transform 0.1s ease, background 0.2s ease, border-color 0.2s ease;
     }
     .power-btn:active { transform: scale(0.95); }
     .power-btn.connecting {
-      border-color: rgba(245, 158, 11, 0.65);
-      background: linear-gradient(145deg, #b45309, #d97706);
-      box-shadow: 0 0 24px rgba(245, 158, 11, 0.35);
+      border-color: rgba(255, 159, 10, 0.60);
+      background: radial-gradient(circle at 30% 25%, rgba(255, 159, 10, 0.34), rgba(255, 159, 10, 0.14));
+      box-shadow: 0 10px 26px rgba(255, 159, 10, 0.22);
     }
     .power-btn.connected {
-      border-color: rgba(16, 185, 129, 0.55);
-      background: linear-gradient(145deg, #059669, #10b981);
-      box-shadow: 0 0 26px rgba(16, 185, 129, 0.38);
+      border-color: rgba(90, 235, 130, 0.55);
+      background: radial-gradient(circle at 30% 25%, rgba(48, 209, 88, 0.36), rgba(48, 209, 88, 0.14));
+      box-shadow: 0 10px 28px rgba(48, 209, 88, 0.22), inset 0 1px 2px rgba(255, 255, 255, 0.38);
     }
+    .power-btn.connected svg { color: #6ee7b7; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .spin { animation: spin 0.9s linear infinite; }
-    .power-sub { font-size: 12px; color: var(--muted); text-align: center; }
+    .power-sub { font-size: 12px; color: var(--sec); text-align: center; }
     .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-    .switch input { width: 15px; height: 15px; accent-color: var(--blue); }
+
+    .ios-switch {
+      position: relative; display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--sec);
+    }
+    .ios-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+    .ios-switch .slider {
+      width: 34px; height: 20px; border-radius: 999px;
+      background: rgba(255, 255, 255, 0.22);
+      position: relative; transition: background 0.18s ease; flex-shrink: 0;
+    }
+    .ios-switch .slider::after {
+      content: ""; position: absolute; top: 2px; left: 2px;
+      width: 16px; height: 16px; border-radius: 50%; background: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); transition: transform 0.18s ease;
+    }
+    .ios-switch input:checked + .slider { background: var(--ios-green); }
+    .ios-switch input:checked + .slider::after { transform: translateX(14px); }
+
     .btn {
-      border: 1px solid var(--border);
-      background: var(--card);
-      color: var(--text);
-      padding: 7px 11px;
-      border-radius: 9px;
-      font-size: 12px;
-      font-weight: 600;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.11);
+      color: var(--text); padding: 6px 11px; border-radius: 10px;
+      font-size: 12px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
     }
     .btn:active { opacity: 0.78; }
-    .btn.primary { background: #2563eb; border-color: #3b82f6; color: #fff; }
-    .btn.xs { padding: 4px 8px; font-size: 11px; }
-    .btn.danger { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.35); color: #fca5a5; }
+    .btn.primary { background: rgba(10, 132, 255, 0.86); border-color: rgba(125, 200, 255, 0.45); color: #fff; font-weight: 600; }
+    .btn.xs { padding: 4px 8px; font-size: 11px; border-radius: 8px; }
+    .btn.danger { background: rgba(255, 69, 58, 0.18); border-color: rgba(255, 69, 58, 0.36); color: #fecaca; }
+
     .tabs {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 4px;
-      gap: 4px;
+      display: grid; grid-template-columns: 1fr 1fr;
+      background: rgba(255, 255, 255, 0.10);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 12px; padding: 3px; gap: 3px;
     }
     .tabs button {
-      border: 0;
-      background: transparent;
-      color: var(--muted);
-      padding: 8px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 700;
+      border: 0; background: transparent; color: var(--sec);
+      padding: 7px; border-radius: 9px; font-size: 13px; font-weight: 600;
     }
-    .tabs button.active { background: #1e293b; color: #fff; }
+    .tabs button.active {
+      background: rgba(255, 255, 255, 0.22); color: #fff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+    }
+
     .seg {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      background: #0d1424;
-      border: 1px solid var(--border);
-      border-radius: 9px;
-      padding: 4px;
+      display: flex; flex-wrap: wrap; gap: 2px;
+      background: rgba(255, 255, 255, 0.10);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 11px; padding: 3px;
     }
     .seg button {
-      border: 0;
-      background: transparent;
-      color: var(--muted);
-      padding: 5px 9px;
-      border-radius: 7px;
-      font-size: 12px;
-      font-weight: 600;
+      border: 0; background: transparent; color: var(--sec);
+      padding: 4px 9px; border-radius: 8px; font-size: 11.5px; font-weight: 500;
     }
-    .seg button.active { background: #1d4ed8; color: #fff; }
+    .seg button.active {
+      background: rgba(255, 255, 255, 0.22); color: #fff; font-weight: 600;
+    }
+
     input {
-      background: #0b1120;
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 8px 10px;
-      border-radius: 9px;
-      font-size: 12px;
-      flex: 1;
-      min-width: 0;
+      background: rgba(0, 0, 0, 0.24); border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--text); padding: 8px 10px; border-radius: 10px; font-size: 12px; flex: 1; min-width: 0;
     }
     .task-banner {
-      display: none;
-      padding: 8px 12px;
-      border-radius: 10px;
-      font-size: 12px;
-      font-weight: 600;
-      background: rgba(59, 130, 246, 0.14);
-      border: 1px solid rgba(59, 130, 246, 0.35);
-      color: #bfdbfe;
+      display: none; padding: 8px 12px; border-radius: 11px; font-size: 12px; font-weight: 500;
+      background: rgba(10, 132, 255, 0.16); border: 1px solid rgba(90, 175, 255, 0.35); color: #dbeafe;
     }
     .task-banner.show { display: block; }
-    .task-banner.ok { background: rgba(16, 185, 129, 0.14); border-color: rgba(16, 185, 129, 0.35); color: #6ee7b7; }
-    .task-banner.err { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.4); color: #fca5a5; }
-    .node-list { display: flex; flex-direction: column; gap: 6px; }
+    .task-banner.ok { background: rgba(48, 209, 88, 0.15); border-color: rgba(90, 235, 130, 0.36); color: #d1fae5; }
+    .task-banner.err { background: rgba(255, 69, 58, 0.18); border-color: rgba(255, 105, 97, 0.42); color: #fecaca; }
+
+    .node-list {
+      display: flex; flex-direction: column; gap: 0;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-soft);
+      border-radius: 14px; overflow: hidden;
+    }
     .node-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 9px 11px;
-      border-radius: 10px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      font-size: 12px;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 12.5px;
     }
-    .node-item.selected { border-color: var(--green); background: rgba(16, 185, 129, 0.13); }
-    .meta { color: var(--muted); font-size: 11px; }
-    .tag {
-      display: inline-block;
-      padding: 1px 6px;
-      border-radius: 5px;
-      font-size: 10px;
-      font-weight: 700;
-      background: rgba(16, 185, 129, 0.18);
-      color: #34d399;
-      margin-left: 5px;
-    }
-    .tag.warn { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
-    .tag.spd { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+    .node-item:last-child { border-bottom: 0; }
+    .node-item.selected { background: rgba(48, 209, 88, 0.14); }
+    .node-title { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .check-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ios-green); flex-shrink: 0; }
+    .meta { color: var(--sec); font-size: 11px; }
+    .tag { display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 10.5px; font-weight: 600; color: #6ee7b7; margin-left: 4px; }
+    .tag.warn { color: var(--ios-orange); }
+    .tag.spd { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.14); color: rgba(255,255,255,0.9); }
+
     .empty-tip {
-      border: 1px dashed var(--border);
-      border-radius: 10px;
-      padding: 20px 12px;
-      text-align: center;
-      color: var(--muted);
-      font-size: 12px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
+      padding: 20px 12px; text-align: center; color: var(--sec); font-size: 12px;
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
     }
     .modal-mask {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.68);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 14px;
-      z-index: 900;
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.58); backdrop-filter: blur(8px);
+      display: none; align-items: center; justify-content: center; padding: 14px; z-index: 900;
     }
     .modal-mask.open { display: flex; }
     .modal {
-      width: 100%;
-      max-height: 82vh;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
+      width: 100%; max-height: 82vh;
+      background: rgba(24, 28, 40, 0.88); backdrop-filter: blur(30px);
+      border: 1px solid var(--border); border-radius: 16px;
+      padding: 14px; display: flex; flex-direction: column; gap: 10px;
     }
     pre.logs {
-      background: #060913;
-      border: 1px solid var(--border);
-      border-radius: 9px;
-      padding: 10px;
-      font-size: 11px;
-      color: #94a3b8;
-      max-height: 56vh;
-      overflow: auto;
-      white-space: pre-wrap;
+      background: rgba(6, 9, 18, 0.72); border: 1px solid var(--border-soft);
+      border-radius: 10px; padding: 10px; font-size: 11px; color: var(--sec);
+      max-height: 56vh; overflow: auto; white-space: pre-wrap;
       font-family: ui-monospace, Consolas, monospace;
     }
   </style>
@@ -250,12 +206,12 @@
 <body>
   <div class="topbar">
     <div class="brand">
-      <img src="starbridge.png" alt="" />
-      <span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.2</small></span>
+      <img src="starbridge.png" alt="StarBridge" id="brandLogo" class="sb-logo idle" />
+      <span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.3</small></span>
     </div>
     <div class="row" style="gap:6px;">
       <div class="seg" id="routeModeSeg">
-        <button data-r="bypass_cn" onclick="setRouteMode('bypass_cn')">绕过大陆</button>
+        <button data-r="bypass_cn" onclick="setRouteMode('bypass_cn')">分流</button>
         <button data-r="global" onclick="setRouteMode('global')">全局</button>
       </div>
       <button class="btn xs" id="checkUpdateBtn" onclick="checkAppUpdate(false)">更新</button>
@@ -266,60 +222,70 @@
   <div class="power-zone">
     <button id="powerBtn" class="power-btn" onclick="toggleConnect()">
       <span id="powerIcon">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>
       </span>
       <span id="powerLabel">一键连接</span>
     </button>
     <div id="powerSub" class="power-sub">未连接</div>
-    <label class="switch">
-      <input type="checkbox" id="smartAutoCheck" onchange="updateSetting({smart_auto_select:this.checked})" />
-      <span>智能选择节点（连接及每小时自动优选）</span>
-    </label>
-    <div class="row" style="justify-content:center;">
-      <button class="btn xs" onclick="runDiagnose()">检测当前出口 IP</button>
-      <span id="diagText" class="meta"></span>
+    <div class="row" style="justify-content:center; gap:10px;">
+      <label class="ios-switch">
+        <span>智能优选</span>
+        <input type="checkbox" id="smartAutoCheck" onchange="updateSetting({smart_auto_select:this.checked})" />
+        <span class="slider"></span>
+      </label>
+      <button class="btn xs" onclick="runDiagnose()">检测出口 IP</button>
     </div>
+    <span id="diagText" class="meta"></span>
   </div>
 
   <div id="taskBanner" class="task-banner"></div>
-  <button id="updateBannerBtn" class="btn primary" style="display:none; width:100%; justify-content:center;" onclick="applyAppUpdate()"></button>
+  <button id="updateBannerBtn" class="btn primary" style="display:none; width:100%;" onclick="applyAppUpdate()"></button>
 
   <div class="tabs">
     <button id="tabEntry" class="active" onclick="switchTab('entry')">加速线路</button>
-    <button id="tabExit" onclick="switchTab('exit')">住宅出口（可选）</button>
+    <button id="tabExit" onclick="switchTab('exit')">住宅出口</button>
   </div>
 
   <section id="paneEntry" class="card">
-    <div class="seg" id="entryStratSeg">
+    <div class="seg" id="entryStratSeg" style="justify-content:space-between;">
       <button data-s="auto_free" onclick="setStrategy('auto_free')">自动免费</button>
-      <button data-s="warp_only" onclick="setStrategy('warp_only')">仅 WARP</button>
-      <button data-s="public_only" onclick="setStrategy('public_only')">仅公益</button>
-      <button data-s="custom_only" onclick="setStrategy('custom_only')">自建前置</button>
+      <button data-s="warp_only" onclick="setStrategy('warp_only')">WARP</button>
+      <button data-s="public_only" onclick="setStrategy('public_only')">公益</button>
+      <button data-s="custom_only" onclick="setStrategy('custom_only')">自建</button>
       <button data-s="direct" onclick="setStrategy('direct')">直连</button>
     </div>
 
-    <div class="row">
-      <label class="switch" id="awgLabel"><input type="checkbox" id="awgCheck" onchange="updateSetting({use_awg:this.checked})" /> AWG混淆</label>
-      <button class="btn primary" id="pullFreeBtn" onclick="pullFreeUnderlays()">一键拉取并优选</button>
-      <button class="btn" id="testAllBtn" onclick="testAllHop1()">全部测速</button>
+    <div class="row" style="justify-content:space-between;">
+      <label class="ios-switch" id="awgLabel">
+        <span>AWG 混淆</span>
+        <input type="checkbox" id="awgCheck" onchange="updateSetting({use_awg:this.checked})" />
+        <span class="slider"></span>
+      </label>
+      <div class="row" style="gap:6px;">
+        <button class="btn primary xs" id="pullFreeBtn" onclick="pullFreeUnderlays()">一键拉取</button>
+        <button class="btn xs" id="testAllBtn" onclick="testAllHop1()">全部测速</button>
+      </div>
     </div>
 
     <div class="row" id="importRow">
       <input id="underlayInput" placeholder="粘贴节点链接 (vless/vmess/trojan/ss/hy2) 或订阅 URL" />
-      <button class="btn primary" onclick="importUnderlay()">+ 导入</button>
+      <button class="btn primary" onclick="importUnderlay()">导入</button>
     </div>
 
     <div class="node-list" id="entryList"></div>
   </section>
 
   <section id="paneExit" class="card" style="display:none;">
-    <label class="switch">
-      <input type="checkbox" id="useExitCheck" onchange="updateSetting({use_exit_hop:this.checked})" />
-      <span>启用住宅出口（需要真实住宅家宽 IP 时勾选）</span>
-    </label>
+    <div class="row" style="justify-content:space-between;">
+      <span class="meta">启用住宅出口（需要固定住宅 IP 时开启）</span>
+      <label class="ios-switch">
+        <input type="checkbox" id="useExitCheck" onchange="updateSetting({use_exit_hop:this.checked})" />
+        <span class="slider"></span>
+      </label>
+    </div>
     <div class="row">
       <input id="exitRawInput" placeholder="ip:port:user:pass 或 socks5://..." />
-      <button class="btn primary" onclick="addExit()">+ 添加</button>
+      <button class="btn primary" onclick="addExit()">添加</button>
     </div>
     <div class="node-list" id="exitList"></div>
   </section>
@@ -338,8 +304,8 @@
   </div>
 
   <script>
-    const SVG_POWER = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>';
-    const SVG_SPIN = '<svg class="spin" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
+    const SVG_POWER = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>';
+    const SVG_SPIN = '<svg class="spin" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>';
 
     let STATE = null;
     let ACTIVE_TAB = 'entry';
@@ -412,7 +378,7 @@
     function metricsHtml(delay, speed) {
       let h = '';
       if (typeof delay === 'number' && delay > 0) {
-        h += `<span class="tag ${delay < 300 ? '' : 'warn'}">${delay}ms</span>`;
+        h += `<span class="tag ${delay < 300 ? '' : 'warn'}">${delay} ms</span>`;
       }
       if (typeof speed === 'number' && speed > 0) {
         h += `<span class="tag spd">${speed} Mbps</span>`;
@@ -431,17 +397,24 @@
       const running = !!rt.running;
       const connecting = !!rt.connecting || _connectingLock;
       const btn = document.getElementById('powerBtn');
+      const logo = document.getElementById('brandLogo');
       btn.classList.toggle('connected', running && !connecting);
       btn.classList.toggle('connecting', connecting);
+
+      if (logo) {
+        if (connecting) logo.className = 'sb-logo busy';
+        else if (running) logo.className = 'sb-logo on';
+        else logo.className = 'sb-logo idle';
+      }
 
       document.getElementById('powerIcon').innerHTML = connecting ? SVG_SPIN : SVG_POWER;
       document.getElementById('powerLabel').textContent = connecting
         ? '连接中...'
-        : (running ? '点击断开' : '一键连接');
+        : (running ? '已连接' : '一键连接');
       document.getElementById('powerSub').textContent = connecting
         ? '正在启动双核并建立 VPN 隧道...'
         : (running
-          ? `已连接 · ${rt.active_hop1 || '直连'} · ↑${fmtBytes(rt.up_bps)}/s ↓${fmtBytes(rt.down_bps)}/s`
+          ? `${rt.active_hop1 || '直连'} · ↑${fmtBytes(rt.up_bps)}/s ↓${fmtBytes(rt.down_bps)}/s`
           : (lastErr ? `上次失败：${lastErr}` : '未连接 · 点击一键启动手机加速'));
     }
 
@@ -503,19 +476,19 @@
       const rows = [];
       if (includeUser) {
         (st.custom_underlays || []).forEach(x => rows.push({
-          title: x.name, meta: `自建 ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
+          title: x.name, meta: `自建 · ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
           sel: s.underlay_strategy === 'manual' && s.selected_underlay === x.name,
           kind: 'custom', id: x.id, delId: x.id,
         }));
         (st.sub_underlays || []).forEach(x => rows.push({
-          title: x.name, meta: `订阅 ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
+          title: x.name, meta: `订阅 · ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
           sel: s.underlay_strategy === 'manual' && s.selected_underlay === x.name,
           kind: 'sub', id: '',
         }));
       }
       if (includePub) {
         (st.public_backups || []).forEach(x => rows.push({
-          title: x.name, meta: `公益 ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
+          title: x.name, meta: `公益 · ${x.type}`, delay: x.delay_ms, speed: x.speed_mbps,
           sel: s.underlay_strategy === 'manual' && s.selected_underlay === x.name,
           kind: 'public', id: x.id,
         }));
@@ -524,7 +497,7 @@
         ((st.warp && st.warp.endpoints) || []).forEach((ep, i) => {
           const name = `${prefix}-${String(i + 1).padStart(2, '0')}`;
           rows.push({
-            title: name, meta: `WARP ${ep.ip}:${ep.port}`, delay: ep.delay_ms, speed: ep.speed_mbps,
+            title: name, meta: `WARP · ${ep.ip}:${ep.port}`, delay: ep.delay_ms, speed: ep.speed_mbps,
             sel: s.underlay_strategy === 'manual' && s.selected_underlay === name,
             kind: 'warp', id: '',
           });
@@ -544,11 +517,12 @@
         const d = document.createElement('div');
         d.className = 'node-item' + (r.sel ? ' selected' : '');
         d.onclick = () => selectUnderlay(r.title);
-        d.innerHTML = `<div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-            <strong>${r.sel ? '[当前] ' : ''}${esc(r.title)}</strong>${metricsHtml(r.delay, r.speed)}
+        d.innerHTML = `<div style="min-width:0;overflow:hidden;">
+            <div class="node-title">${r.sel ? '<i class="check-dot"></i>' : ''}<span>${esc(r.title)}</span></div>
             <div class="meta">${esc(r.meta)}</div>
           </div>
-          <div class="row" style="gap:4px;flex-shrink:0;">
+          <div class="row" style="gap:5px;flex-shrink:0;">
+            ${metricsHtml(r.delay, r.speed)}
             <button class="btn xs test-btn">测速</button>
             ${r.delId ? `<button class="btn xs danger del-btn">删</button>` : ''}
           </div>`;
@@ -562,7 +536,7 @@
       if (dead.length) {
         const f = document.createElement('div');
         f.className = 'meta';
-        f.style.textAlign = 'center';
+        f.style.cssText = 'text-align:center; padding:8px 0;';
         f.innerHTML = SHOW_DEAD
           ? `<a href="#" style="color:#60a5fa" onclick="SHOW_DEAD=false;render(STATE);return false;">隐藏 ${dead.length} 个不可用节点</a>`
           : `已隐藏 ${dead.length} 个不可用节点 · <a href="#" style="color:#60a5fa" onclick="SHOW_DEAD=true;render(STATE);return false;">显示全部</a>`;
@@ -571,7 +545,7 @@
 
       if (!rows.length && !(includeUser && (st.underlay_subs || []).length)) {
         list.innerHTML = view === 'custom_only'
-          ? '<div class="empty-tip">请在上方粘贴导入你的节点链接或订阅 URL</div>'
+          ? '<div class="empty-tip">请在上方粘贴导入节点链接或订阅 URL</div>'
           : '<div class="empty-tip"><div>还没有拉取免费节点</div><button class="btn primary" onclick="pullFreeUnderlays()">一键拉取并优选</button></div>';
       }
     }
@@ -582,7 +556,7 @@
       list.innerHTML = '';
       const exits = st.exits || [];
       if (!exits.length) {
-        list.innerHTML = '<div class="empty-tip">未启用住宅出口时将由前置加速节点直接出站；如需固定住宅家宽 IP，可在上方添加。</div>';
+        list.innerHTML = '<div class="empty-tip">未启用住宅出口时将由前置加速节点直接出站；如需固定住宅 IP，可在上方添加。</div>';
         return;
       }
       exits.forEach(e => {
@@ -590,13 +564,12 @@
         const d = document.createElement('div');
         d.className = 'node-item' + (sel ? ' selected' : '');
         d.onclick = () => updateSetting({ use_exit_hop: true, selected_exit_id: e.id });
-        d.innerHTML = `<div><strong>${sel ? '[当前] ' : ''}${esc(e.name)}</strong><div class="meta">${esc(e.type)} ${esc(e.server)}:${esc(e.port)}</div></div>
+        d.innerHTML = `<div><div class="node-title">${sel ? '<i class="check-dot"></i>' : ''}<span>${esc(e.name)}</span></div><div class="meta">${esc(e.type)} · ${esc(e.server)}:${esc(e.port)}</div></div>
           <button class="btn xs danger" onclick="event.stopPropagation();delExit('${esc(e.id)}')">删</button>`;
         list.appendChild(d);
       });
     }
 
-    // 乐观 UI：先就地更新本地状态并立即重绘，后台异步落盘，消除按钮点击迟滞
     function applyOptimisticPatch(patch) {
       if (!STATE) return;
       STATE.settings = Object.assign({}, STATE.settings || {}, patch);
@@ -694,10 +667,10 @@
     }
 
     async function testAllHop1() {
-      const view = getActiveView(STATE);
+      const view = getActiveEntryView(STATE);
       if (view === 'direct') return;
       const map = { warp_only: 'warp', public_only: 'public', custom_only: 'user', auto_free: 'free' };
-      setBanner('正在极速并发测速当前分类节点...');
+      setBanner('正在并发测速当前分类节点...');
       try {
         const t = await callNative('test_all', { kind: map[view] || 'free', test_speed: true });
         await refreshState();
@@ -864,7 +837,6 @@
       }
     });
     setTimeout(() => checkAppUpdate(true), 3500);
-    // 仅轮询轻量运行态与流量，切后台/息屏时自动暂停，绝不重建下方节点列表 DOM
     async function pollRuntimeOnce() {
       if (_connectingLock || !STATE || !STATE.runtime || !STATE.runtime.running) return;
       try {

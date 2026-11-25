@@ -229,7 +229,7 @@ def build_warp_proxies(account: dict[str, Any], endpoints: list[tuple[str, int]]
             "mtu": 1280,
             "udp": True,
             "remote-dns-resolve": True,
-            "dns": ["223.5.5.5", "119.29.29.29", "1.1.1.1", "1.0.0.1"],
+            "dns": ["1.1.1.1", "1.0.0.1", "8.8.8.8"],
         }
         if use_awg:
             p["amnezia-wg-option"] = {

@@ -63,6 +63,84 @@ def get_active_proxy_url(self_port: int = 17890) -> str | None:
     return None
 
 
+def check_system_proxy(self_port: int = 17890) -> dict[str, Any]:
+    """检查当前 Windows 系统代理是否仍开启并指向指定本地端口。"""
+    target = f"127.0.0.1:{self_port}"
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _INTERNET_SETTINGS_PATH, 0, winreg.KEY_READ) as k:
+            try:
+                enable = int(winreg.QueryValueEx(k, "ProxyEnable")[0])
+            except FileNotFoundError:
+                enable = 0
+            try:
+                srv = str(winreg.QueryValueEx(k, "ProxyServer")[0]).strip()
+            except FileNotFoundError:
+                srv = ""
+        return {"ok": (enable == 1 and srv == target), "enable": enable, "server": srv}
+    except Exception:
+        return {"ok": False, "enable": 0, "server": ""}
+
+
+def reclaim_system_proxy(port: int) -> None:
+    """在不覆写原始快照的前提下重新接管系统代理（用于防止其他软件关闭/重置 ProxyEnable）。"""
+    target = f"127.0.0.1:{port}"
+    bypass = "<local>;localhost;127.*;10.*;172.16.*;192.168.*"
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _INTERNET_SETTINGS_PATH, 0, winreg.KEY_SET_VALUE) as k:
+        winreg.SetValueEx(k, "ProxyEnable", 0, winreg.REG_DWORD, 1)
+        winreg.SetValueEx(k, "ProxyServer", 0, winreg.REG_SZ, target)
+        winreg.SetValueEx(k, "ProxyOverride", 0, winreg.REG_SZ, bypass)
+        try:
+            winreg.DeleteValue(k, "AutoConfigURL")
+        except FileNotFoundError:
+            pass
+    _notify_wininet()
+
+
+_SINGLE_INSTANCE_MUTEX = None
+
+
+def try_acquire_single_instance(name: str = "Local\\StarBridgePanelMutex") -> bool:
+    """尝试获取单实例命名互斥锁；已存在实例时返回 False。"""
+    global _SINGLE_INSTANCE_MUTEX
+    if sys.platform != "win32":
+        return True
+    try:
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.CreateMutexW(None, False, str(name))
+        err = kernel32.GetLastError()
+        if not handle:
+            return True
+        if err == 183:  # ERROR_ALREADY_EXISTS
+            kernel32.CloseHandle(handle)
+            return False
+        _SINGLE_INSTANCE_MUTEX = handle
+        return True
+    except Exception:
+        return True
+
+
+def enable_acrylic_backdrop(hwnd: int) -> bool:
+    """在 Windows 11 启用原生 Acrylic 半透明亚克力磨砂窗体背景。"""
+    if sys.platform != "win32" or not hwnd:
+        return False
+    try:
+        class _MARGINS(ctypes.Structure):
+            _fields_ = [
+                ("left", ctypes.c_int),
+                ("right", ctypes.c_int),
+                ("top", ctypes.c_int),
+                ("bottom", ctypes.c_int),
+            ]
+
+        dwm = ctypes.windll.dwmapi
+        dwm.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARGINS(-1, -1, -1, -1)))
+        dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+        hr = int(dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(ctypes.c_int(3)), 4))
+        return hr == 0
+    except Exception:
+        return False
+
+
 def _read_snapshot() -> dict[str, Any]:
     snap: dict[str, Any] = {"enable": 0, "server": "", "override": "", "auto_config": ""}
     try:

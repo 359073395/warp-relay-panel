@@ -7,11 +7,13 @@ import concurrent.futures
 import copy
 import json
 import os
+import random
 import signal
 import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 import uuid
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -47,6 +49,34 @@ def _get_icon_path() -> Path | None:
         if p.exists():
             return p
     return None
+
+
+def _get_tray_icon_paths() -> dict[str, Path]:
+    roots: list[Path] = []
+    if getattr(sys, "frozen", False):
+        meipass = Path(getattr(sys, "_MEIPASS", BASE_DIR))
+        roots.append(meipass / "assets")
+    roots.append(BASE_DIR / "assets")
+
+    mapping = {
+        "idle": "tray_idle.ico",
+        "connecting": "tray_busy.ico",
+        "connected": "tray_connected.ico",
+        "warning": "tray_warn.ico",
+    }
+    found: dict[str, Path] = {}
+    for state, fname in mapping.items():
+        for rt in roots:
+            p = rt / fname
+            if p.exists():
+                found[state] = p
+                break
+    fallback = _get_icon_path()
+    if fallback and "idle" not in found:
+        found["idle"] = fallback
+    return found
+
+
 PUBLIC_REMOTE_URL = "https://raw.githubusercontent.com/359073395/subs-check-auto/main/subs/all.yaml"
 PANEL_PORT = 19090
 
@@ -66,7 +96,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "ipv6": False,
     "mixed_port": mihomo_mgr.MIXED_PORT,
     "custom_rules": "",
-    "minimize_to_tray": False,
+    "minimize_to_tray": True,
+    "guard_system_proxy": True,
     "smart_auto_select": False,
 }
 
@@ -90,6 +121,12 @@ class PanelStore:
         self._connect_lock = threading.Lock()
         self._smart_lock = threading.Lock()
         self._scheduler_started = False
+        self._tray_state_cb: Any = None
+        self._show_window_cb: Any = None
+        self._last_tray_state: str = ""
+        self.acrylic_active: bool = False
+        self.proxy_guard_healed_count: int = 0
+        self.proxy_guard_last_at: str = ""
         self.mgr = mihomo_mgr.MihomoManager(self.base_dir)
         self.core_dl_state: dict[str, Any] = {
             "downloading": False,
@@ -1003,80 +1040,144 @@ class PanelStore:
                 except Exception:
                     pass
 
+        def _proxy_guard_loop() -> None:
+            while True:
+                time.sleep(3)
+                try:
+                    if not self.mgr.is_running():
+                        self.notify_tray_state("idle", "星桥 · 未连接")
+                        continue
+                    s = self.get_settings()
+                    if self.mgr.active_mode == "system":
+                        chk = win_proxy.check_system_proxy(self.mgr.mixed_port)
+                        if not chk.get("ok"):
+                            if s.get("guard_system_proxy", True):
+                                win_proxy.reclaim_system_proxy(self.mgr.mixed_port)
+                                self.proxy_guard_healed_count += 1
+                                self.proxy_guard_last_at = time.strftime("%H:%M:%S")
+                                self.notify_tray_state("connected", f"星桥 · 已连接 (:{self.mgr.mixed_port})")
+                            else:
+                                self.notify_tray_state("warning", "星桥 · 系统代理已被外部程序关闭或覆盖")
+                        else:
+                            self.notify_tray_state("connected", f"星桥 · 已连接 (:{self.mgr.mixed_port})")
+                    else:
+                        self.notify_tray_state("connected", "星桥 · 已连接 (TUN 模式)")
+                except Exception:
+                    pass
+
         threading.Thread(target=_loop, daemon=True).start()
+        threading.Thread(target=_proxy_guard_loop, daemon=True).start()
+
+    def set_ui_callbacks(self, tray_cb: Any = None, show_cb: Any = None) -> None:
+        self._tray_state_cb = tray_cb
+        self._show_window_cb = show_cb
+
+    def notify_tray_state(self, state: str, tooltip: str | None = None) -> None:
+        if state == self._last_tray_state and not tooltip:
+            return
+        self._last_tray_state = state
+        cb = self._tray_state_cb
+        if cb is not None:
+            try:
+                cb(state, tooltip)
+            except Exception:
+                pass
+
+    def request_show_window(self) -> bool:
+        cb = self._show_window_cb
+        if cb is None:
+            return False
+        try:
+            cb()
+            return True
+        except Exception:
+            return False
+
+    def reclaim_proxy(self) -> dict[str, Any]:
+        if self.mgr.is_running() and self.mgr.active_mode == "system":
+            win_proxy.reclaim_system_proxy(self.mgr.mixed_port)
+            self.notify_tray_state("connected", f"星桥 · 已连接 (:{self.mgr.mixed_port})")
+        return {"ok": True, "runtime": self.mgr.get_runtime_status()}
 
     def connect(self, smart_pick: bool = False, prefer_reload: bool = False) -> dict[str, Any]:
         with self._connect_lock:
-            settings = self.get_settings()
-            smart_best_underlay = ""
-            if smart_pick and settings.get("smart_auto_select"):
-                s_res = self.smart_select_best(apply_if_running=False)
-                smart_best_underlay = str(s_res.get("best_underlay") or "")
+            self.notify_tray_state("connecting", "星桥 · 正在连接...")
+            try:
                 settings = self.get_settings()
+                smart_best_underlay = ""
+                if smart_pick and settings.get("smart_auto_select"):
+                    s_res = self.smart_select_best(apply_if_running=False)
+                    smart_best_underlay = str(s_res.get("best_underlay") or "")
+                    settings = self.get_settings()
 
-            strategy = settings.get("underlay_strategy", "auto_free")
-            emode = settings.get("exit_mode", "direct_underlay")
-            if strategy == "direct" and emode == "direct_underlay":
-                raise ValueError("第一跳设为“直连”时，请开启第二跳并选择一个落地节点。")
+                strategy = settings.get("underlay_strategy", "auto_free")
+                emode = settings.get("exit_mode", "direct_underlay")
+                if strategy == "direct" and emode == "direct_underlay":
+                    raise ValueError("第一跳设为“直连”时，请开启第二跳并选择一个落地节点。")
 
-            underlays = self.assemble_underlays(settings)
-            if emode == "vpngate" and not self.get_vpngate_nodes():
-                self.refresh_vpngate()
-            exit_node = self.get_active_exit_node(settings)
-            if emode == "residential" and exit_node is None:
-                raise ValueError("已开启第二跳“我的私人住宅 IP”，请先添加一个住宅 IP。")
-            if emode == "vpngate" and exit_node is None:
-                raise ValueError("VPN Gate 节点列表为空，请先刷新家宽列表。")
+                underlays = self.assemble_underlays(settings)
+                if emode == "vpngate" and not self.get_vpngate_nodes():
+                    self.refresh_vpngate()
+                exit_node = self.get_active_exit_node(settings)
+                if emode == "residential" and exit_node is None:
+                    raise ValueError("已开启第二跳“我的私人住宅 IP”，请先添加一个住宅 IP。")
+                if emode == "vpngate" and exit_node is None:
+                    raise ValueError("VPN Gate 节点列表为空，请先刷新家宽列表。")
 
-            extra_exits: list[dict[str, Any]] = []
-            cand_id_by_ob_name: dict[str, str] = {}
-            if emode == "vpngate" and exit_node is not None:
-                sel_id = settings.get("selected_vpngate_id", "")
-                vg_nodes = self.get_vpngate_nodes()
-                res_cands = [n for n in vg_nodes if n.get("line_class") == "residential" and n.get("id") != sel_id]
-                dc_cands = [n for n in vg_nodes if n.get("line_class") != "residential" and n.get("id") != sel_id]
-                for idx, cand in enumerate((res_cands + dc_cands)[:5], start=1):
-                    ob = vpngate.build_mihomo_openvpn_outbound(cand)
-                    ob["name"] = f"{cand['name']} (备{idx})"
-                    extra_exits.append(ob)
-                    cand_id_by_ob_name[f"落地-{ob['name']}"] = str(cand["id"])
+                extra_exits: list[dict[str, Any]] = []
+                cand_id_by_ob_name: dict[str, str] = {}
+                if emode == "vpngate" and exit_node is not None:
+                    sel_id = settings.get("selected_vpngate_id", "")
+                    vg_nodes = self.get_vpngate_nodes()
+                    res_cands = [n for n in vg_nodes if n.get("line_class") == "residential" and n.get("id") != sel_id]
+                    dc_cands = [n for n in vg_nodes if n.get("line_class") != "residential" and n.get("id") != sel_id]
+                    for idx, cand in enumerate((res_cands + dc_cands)[:5], start=1):
+                        ob = vpngate.build_mihomo_openvpn_outbound(cand)
+                        ob["name"] = f"{cand['name']} (备{idx})"
+                        extra_exits.append(ob)
+                        cand_id_by_ob_name[f"落地-{ob['name']}"] = str(cand["id"])
 
-            patched_settings = dict(settings)
-            if emode == "vpngate":
-                patched_settings["exit_mode"] = "residential"
-            if prefer_reload and self.mgr.is_running():
-                res = self.mgr.reload_config(patched_settings, underlays, exit_node, extra_exit_nodes=extra_exits)
-            else:
-                res = self.mgr.start(patched_settings, underlays, exit_node, extra_exit_nodes=extra_exits)
-            if smart_best_underlay and strategy != "direct":
-                self.mgr.select_underlay(smart_best_underlay)
+                patched_settings = dict(settings)
+                if emode == "vpngate":
+                    patched_settings["exit_mode"] = "residential"
+                if prefer_reload and self.mgr.is_running():
+                    res = self.mgr.reload_config(patched_settings, underlays, exit_node, extra_exit_nodes=extra_exits)
+                else:
+                    res = self.mgr.start(patched_settings, underlays, exit_node, extra_exit_nodes=extra_exits)
+                if smart_best_underlay and strategy != "direct":
+                    self.mgr.select_underlay(smart_best_underlay)
 
-            if emode == "vpngate" and exit_node is not None:
-                primary_proxy_name = f"落地-{exit_node.get('name', '住宅IP')}"
-                ms = self.mgr.test_node_delay(primary_proxy_name, timeout_ms=7000)
-                if ms is None and cand_id_by_ob_name:
-                    def _test_alt(pname: str) -> tuple[str, int | None]:
-                        return pname, self.mgr.test_node_delay(pname, timeout_ms=7000)
+                if emode == "vpngate" and exit_node is not None:
+                    primary_proxy_name = f"落地-{exit_node.get('name', '住宅IP')}"
+                    ms = self.mgr.test_node_delay(primary_proxy_name, timeout_ms=7000)
+                    if ms is None and cand_id_by_ob_name:
+                        def _test_alt(pname: str) -> tuple[str, int | None]:
+                            return pname, self.mgr.test_node_delay(pname, timeout_ms=7000)
 
-                    best_name = ""
-                    best_ms = 999999
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
-                        for pname, alt_ms in pool.map(_test_alt, list(cand_id_by_ob_name.keys())):
-                            if alt_ms is not None and alt_ms < best_ms:
-                                best_ms = alt_ms
-                                best_name = pname
-                    if best_name:
-                        self.mgr.select_exit(best_name)
-                        new_id = cand_id_by_ob_name[best_name]
-                        self.save_settings({"selected_vpngate_id": new_id})
-                        res["auto_switched"] = best_name
-                        res["delay_ms"] = best_ms
-                elif ms is not None:
-                    res["delay_ms"] = ms
-            return res
+                        best_name = ""
+                        best_ms = 999999
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+                            for pname, alt_ms in pool.map(_test_alt, list(cand_id_by_ob_name.keys())):
+                                if alt_ms is not None and alt_ms < best_ms:
+                                    best_ms = alt_ms
+                                    best_name = pname
+                        if best_name:
+                            self.mgr.select_exit(best_name)
+                            new_id = cand_id_by_ob_name[best_name]
+                            self.save_settings({"selected_vpngate_id": new_id})
+                            res["auto_switched"] = best_name
+                            res["delay_ms"] = best_ms
+                    elif ms is not None:
+                        res["delay_ms"] = ms
+                self.notify_tray_state("connected", f"星桥 · 已连接 (:{self.mgr.mixed_port})")
+                return res
+            except Exception:
+                self.notify_tray_state("connected" if self.mgr.is_running() else "idle", None)
+                raise
 
     def disconnect(self) -> dict[str, Any]:
         self.mgr.stop()
+        self.notify_tray_state("idle", "星桥 · 未连接")
         return {"ok": True}
 
     def diagnose(self) -> dict[str, Any]:
@@ -1197,10 +1298,12 @@ class PanelStore:
             ]
         else:
             px = self._active_or_sys_proxy()
-            raw_list = node_parser.fetch_subscription(PUBLIC_REMOTE_URL, proxy_url=px)
+            raw_list = [p for p in node_parser.fetch_subscription(PUBLIC_REMOTE_URL, proxy_url=px) if isinstance(p, dict)]
+            # 随机抽样，避免多人试用来回挤在最前面那几个节点上
+            chosen = random.sample(raw_list, min(len(raw_list), 15)) if raw_list else []
             items = [
                 {"id": f"pub-{i}", "name": f"公益-{p.get('name', i)}", "proxy": p}
-                for i, p in enumerate(raw_list[:15], start=1)
+                for i, p in enumerate(chosen, start=1)
             ]
         for item in items:
             item["proxy"]["name"] = item["name"]
@@ -1365,12 +1468,18 @@ class PanelStore:
 
         return {
             "app_version": updater.APP_VERSION,
+            "acrylic_active": self.acrylic_active,
             "settings": settings,
             "is_admin": win_proxy.is_admin(),
             "core_status": self.mgr.get_core_status(),
             "core_download": dict(self.core_dl_state),
             "smart_status": dict(self.smart_state),
             "update_state": dict(self.update_state),
+            "proxy_guard": {
+                "enabled": bool(settings.get("guard_system_proxy", True)),
+                "healed_count": self.proxy_guard_healed_count,
+                "last_at": self.proxy_guard_last_at,
+            },
             "runtime": self.mgr.get_runtime_status(),
             "warp": {
                 "has_account": self.warp_account_file.exists(),
@@ -1459,13 +1568,25 @@ def create_handler(store: PanelStore) -> type[BaseHTTPRequestHandler]:
                 return
 
             if parsed.path == "/api/runtime":
+                s = store.get_settings()
                 self._send_json({
                     "ok": True,
+                    "acrylic_active": store.acrylic_active,
                     "runtime": store.mgr.get_runtime_status(),
                     "smart_status": dict(store.smart_state),
                     "core_download": dict(store.core_dl_state),
                     "update_state": dict(store.update_state),
+                    "proxy_guard": {
+                        "enabled": bool(s.get("guard_system_proxy", True)),
+                        "healed_count": store.proxy_guard_healed_count,
+                        "last_at": store.proxy_guard_last_at,
+                    },
                 })
+                return
+
+            if parsed.path == "/api/window/show":
+                shown = store.request_show_window()
+                self._send_json({"ok": True, "shown": shown})
                 return
 
             if parsed.path == "/api/update/check":
@@ -1531,6 +1652,16 @@ def create_handler(store: PanelStore) -> type[BaseHTTPRequestHandler]:
                     probe = bool(body.get("probe", True))
                     nodes = store.ensure_warp_nodes(use_awg=use_awg, rescan=True, probe=probe)
                     self._send_json({"ok": True, "count": len(nodes)})
+                elif path == "/api/warp/reset":
+                    if store.warp_account_file.exists():
+                        store.warp_account_file.unlink(missing_ok=True)
+                    use_awg = bool(store.get_settings().get("use_awg", True))
+                    nodes = store.ensure_warp_nodes(use_awg=use_awg, rescan=True, probe=False)
+                    self._send_json({"ok": True, "count": len(nodes)})
+                elif path == "/api/proxy/reclaim":
+                    self._send_json(store.reclaim_proxy())
+                elif path == "/api/window/show":
+                    self._send_json({"ok": True, "shown": store.request_show_window()})
                 elif path == "/api/public/refresh":
                     res = store.refresh_public_backups()
                     self._send_json({"ok": True, **res})
@@ -1647,7 +1778,29 @@ def _cleanup() -> None:
         pass
 
 
+def _wake_existing_panel() -> bool:
+    for p in range(PANEL_PORT, PANEL_PORT + 6):
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{p}/api/window/show",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(req, timeout=1.2) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            continue
+    return False
+
+
 def main() -> None:
+    if "--allow-multi" not in sys.argv and not win_proxy.try_acquire_single_instance():
+        _wake_existing_panel()
+        return
+
     atexit.register(_cleanup)
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
@@ -1673,10 +1826,11 @@ def main() -> None:
             window = webview.create_window(
                 "星桥 · StarBridge",
                 url,
-                width=920,
-                height=620,
-                min_size=(780, 540),
-                background_color="#090e1a",
+                width=940,
+                height=636,
+                min_size=(800, 560),
+                background_color="#0d1322",
+                transparent=True,
             )
 
             def _show_win() -> None:
@@ -1710,16 +1864,29 @@ def main() -> None:
                 os._exit(0)
 
             tray_icon = tray.TrayIcon(
-                tooltip="星桥 · StarBridge",
+                tooltip="星桥 · 未连接",
                 on_show=_show_win,
                 on_toggle=_toggle_conn,
                 on_exit=_force_quit,
                 is_connected_fn=STORE.mgr.is_running,
                 icon_path=_get_icon_path(),
+                icon_paths=_get_tray_icon_paths(),
+                on_reclaim_proxy=lambda: STORE.reclaim_proxy(),
             )
+            STORE.set_ui_callbacks(tray_cb=tray_icon.set_state, show_cb=_show_win)
+
+            def _on_shown() -> None:
+                try:
+                    hwnd = int(window.native.Handle.ToInt64())
+                    STORE.acrylic_active = win_proxy.enable_acrylic_backdrop(hwnd)
+                    window.evaluate_js(
+                        f"document.documentElement.classList.toggle('acrylic', {str(STORE.acrylic_active).lower()});"
+                    )
+                except Exception:
+                    pass
 
             def _on_closing() -> bool:
-                if not force_exit and STORE.get_settings().get("minimize_to_tray"):
+                if not force_exit and STORE.get_settings().get("minimize_to_tray", True):
                     try:
                         window.hide()
                     except Exception:
@@ -1727,8 +1894,10 @@ def main() -> None:
                     return False
                 return True
 
+            window.events.shown += _on_shown
             window.events.closing += _on_closing
             tray_icon.start()
+            tray_icon.set_state("idle", "星桥 · 未连接")
             webview.start()
             tray_icon.stop()
             _cleanup()

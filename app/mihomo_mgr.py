@@ -276,6 +276,8 @@ class MihomoManager:
                 "default-nameserver": ["223.5.5.5", "119.29.29.29"],
                 "nameserver": ["223.5.5.5", "119.29.29.29", "https://dns.alidns.com/dns-query"],
                 "proxy-server-nameserver": ["223.5.5.5", "119.29.29.29"],
+                "fallback": ["1.1.1.1", "8.8.8.8", "https://cloudflare-dns.com/dns-query"],
+                "fallback-filter": {"geoip": True, "geoip-code": "CN", "ipcidr": ["240.0.0.0/4"]},
             },
             "tun": {
                 "enable": is_tun,
@@ -715,9 +717,15 @@ class MihomoManager:
             "upload_total": 0,
             "download_total": 0,
             "conn_count": 0,
+            "sys_proxy_ok": True,
+            "sys_proxy_server": "",
         }
         if not running:
             return info
+        if self.active_mode == "system":
+            chk = win_proxy.check_system_proxy(self.mixed_port)
+            info["sys_proxy_ok"] = bool(chk.get("ok"))
+            info["sys_proxy_server"] = str(chk.get("server") or "")
         try:
             proxies = self._api_request("/proxies", timeout=1.5).get("proxies", {})
             exit_g = proxies.get("EXIT", {})

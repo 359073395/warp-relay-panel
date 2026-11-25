@@ -59,8 +59,12 @@ class TestAndroidProjectAndWorkflow(unittest.TestCase):
         self.assertIn("hotReloadConfig", core_mgr)
         self.assertIn("xray.log", core_mgr)
         self.assertIn("up_bps", core_mgr)
+        self.assertIn("cdn-cgi/trace", core_mgr)
+        self.assertIn("shuffled()", core_mgr)
         self.assertIn("visibilitychange", android_html)
         self.assertIn("visibilitychange", desktop_html)
+        self.assertIn("backdrop-filter", android_html)
+        self.assertIn("backdrop-filter", desktop_html)
 
         node_parser_kt = (ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "NodeParser.kt").read_text(encoding="utf-8")
         self.assertIn("parseWireguard", node_parser_kt)

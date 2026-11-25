@@ -629,7 +629,7 @@ class CoreManager(private val context: Context) {
                     if (!r.isSuccessful) error("HTTP ${r.code}")
                     r.body?.string() ?: ""
                 }
-                val parsed = NodeParser.parseSubscriptionContent(body).take(40)
+                val parsed = NodeParser.parseSubscriptionContent(body).shuffled().take(40)
                 if (parsed.isNotEmpty()) return parsed
             } catch (_: Exception) {
             }
@@ -1496,17 +1496,50 @@ class CoreManager(private val context: Context) {
         } else directHttp
 
         val out = JSONObject()
+        var gotIp = false
         runCatching {
             val r = client.newCall(Request.Builder().url("http://ip-api.com/json/?lang=zh-CN").build()).execute()
             r.use {
-                val j = JSONObject(it.body?.string() ?: "{}")
-                out.put("ip", j.optString("query", "-"))
-                out.put("country", j.optString("country", "-"))
-                out.put("city", j.optString("city", ""))
-                out.put("isp", j.optString("isp", ""))
+                if (it.isSuccessful) {
+                    val j = JSONObject(it.body?.string() ?: "{}")
+                    val ip = j.optString("query", "")
+                    if (ip.isNotEmpty()) {
+                        out.put("ip", ip)
+                        out.put("country", j.optString("country", "-"))
+                        out.put("city", j.optString("city", ""))
+                        out.put("isp", j.optString("isp", ""))
+                        gotIp = true
+                    }
+                }
             }
-        }.onFailure {
-            out.put("error", it.message ?: "无法访问检测服务")
+        }
+        if (!gotIp) {
+            runCatching {
+                val r2 = client.newCall(Request.Builder().url("https://www.cloudflare.com/cdn-cgi/trace").build()).execute()
+                r2.use {
+                    if (it.isSuccessful) {
+                        val txt = it.body?.string() ?: ""
+                        val kv = HashMap<String, String>()
+                        txt.lines().forEach { ln ->
+                            val idx = ln.indexOf('=')
+                            if (idx > 0) kv[ln.substring(0, idx)] = ln.substring(idx + 1)
+                        }
+                        val ip = kv["ip"] ?: ""
+                        if (ip.isNotEmpty()) {
+                            out.put("ip", ip)
+                            out.put("country", kv["loc"] ?: "-")
+                            out.put("city", kv["colo"] ?: "")
+                            out.put("isp", "Cloudflare Trace")
+                            gotIp = true
+                        }
+                    }
+                }
+            }.onFailure {
+                out.put("error", it.message ?: "无法访问检测服务")
+            }
+            if (!gotIp && !out.has("error")) {
+                out.put("error", "无法访问出口检测服务")
+            }
         }
         val t0 = System.currentTimeMillis()
         val googleOk = runCatching {

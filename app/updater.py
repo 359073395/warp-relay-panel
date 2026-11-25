@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-APP_VERSION = "2.2.2"
+APP_VERSION = "2.2.3"
 GITHUB_LATEST_API = "https://api.github.com/repos/359073395/warp-relay-panel/releases/latest"
 GITHUB_RELEASES_ATOM = "https://github.com/359073395/warp-relay-panel/releases.atom"
 GH_MIRRORS = ["", "https://gh-proxy.com/"]

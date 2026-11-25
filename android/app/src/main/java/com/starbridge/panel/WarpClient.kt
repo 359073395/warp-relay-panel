@@ -144,7 +144,7 @@ object WarpClient {
             p["mtu"] = 1280
             p["udp"] = true
             p["remote-dns-resolve"] = true
-            p["dns"] = listOf("223.5.5.5", "119.29.29.29", "1.1.1.1", "1.0.0.1")
+            p["dns"] = listOf("1.1.1.1", "1.0.0.1", "8.8.8.8")
             if (useAwg) {
                 p["amnezia-wg-option"] = mapOf(
                     "jc" to jc,

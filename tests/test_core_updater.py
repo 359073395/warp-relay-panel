@@ -58,8 +58,14 @@ class TestCoreUpdaterAndTray(unittest.TestCase):
             on_toggle=lambda: None,
             on_exit=lambda: None,
             is_connected_fn=lambda: False,
+            icon_paths={"idle": Path("assets/tray_idle.ico"), "connected": Path("assets/tray_connected.ico")},
         )
+        t.set_state("connected", "StarBridge Connected")
         t.stop()
+
+        root = Path(__file__).resolve().parent.parent
+        for fname in ("tray_idle.ico", "tray_busy.ico", "tray_connected.ico", "tray_warn.ico"):
+            self.assertTrue((root / "assets" / fname).is_file(), f"Missing {fname}")
 
     def test_core_updater_mirrors_and_atom_fallback(self) -> None:
         self.assertNotIn("https://mirror.ghproxy.com/", core_updater.GH_MIRRORS)

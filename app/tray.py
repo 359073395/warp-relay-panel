@@ -36,7 +36,8 @@ _LR_DEFAULTSIZE = 0x0040
 
 _ID_SHOW = 1001
 _ID_TOGGLE = 1002
-_ID_EXIT = 1003
+_ID_RECLAIM = 1003
+_ID_EXIT = 1004
 
 
 class _NOTIFYICONDATAW(ctypes.Structure):
@@ -90,17 +91,27 @@ class TrayIcon:
         on_exit: Callable[[], None],
         is_connected_fn: Callable[[], bool],
         icon_path: str | Path | None = None,
+        icon_paths: dict[str, str | Path] | None = None,
+        on_reclaim_proxy: Callable[[], None] | None = None,
     ) -> None:
         self.tooltip = tooltip[:120]
         self.on_show = on_show
         self.on_toggle = on_toggle
         self.on_exit = on_exit
+        self.on_reclaim_proxy = on_reclaim_proxy
         self.is_connected_fn = is_connected_fn
         self.icon_path = str(icon_path) if icon_path else None
+        self.icon_paths: dict[str, str] = {
+            k: str(v) for k, v in (icon_paths or {}).items() if v
+        }
+        if self.icon_path and "idle" not in self.icon_paths:
+            self.icon_paths["idle"] = self.icon_path
         self._hwnd: wintypes.HWND | None = None
         self._thread: threading.Thread | None = None
         self._nid: _NOTIFYICONDATAW | None = None
         self._custom_hicon: wintypes.HICON | None = None
+        self._state_hicons: dict[str, wintypes.HICON] = {}
+        self._state: str = "idle"
         self._wndproc_ref: WNDPROC | None = None
         self._started = threading.Event()
 
@@ -113,6 +124,27 @@ class TrayIcon:
         self._thread.start()
         self._started.wait(timeout=2.0)
 
+    def set_state(self, state: str, tooltip: str | None = None) -> None:
+        """动态切换托盘图标颜色与悬停提示（idle / connecting / connected / warning）。"""
+        self._state = state
+        if tooltip:
+            self.tooltip = tooltip[:120]
+        if sys.platform != "win32" or not self._hwnd or self._nid is None:
+            return
+        try:
+            hicon = (
+                self._state_hicons.get(state)
+                or self._state_hicons.get("idle")
+                or self._custom_hicon
+            )
+            if hicon:
+                self._nid.hIcon = hicon
+            self._nid.szTip = self.tooltip
+            self._nid.uFlags = _NIF_MESSAGE | _NIF_ICON | _NIF_TIP
+            ctypes.windll.shell32.Shell_NotifyIconW(_NIM_MODIFY, ctypes.byref(self._nid))
+        except Exception:
+            pass
+
     def stop(self) -> None:
         if sys.platform != "win32":
             return
@@ -122,9 +154,13 @@ class TrayIcon:
                 user32 = ctypes.windll.user32
                 if self._nid is not None:
                     ctypes.windll.shell32.Shell_NotifyIconW(_NIM_DELETE, ctypes.byref(self._nid))
-                if self._custom_hicon:
-                    user32.DestroyIcon(self._custom_hicon)
-                    self._custom_hicon = None
+                seen: set[int] = set()
+                for hi in [self._custom_hicon, *self._state_hicons.values()]:
+                    if hi and int(hi) not in seen:
+                        seen.add(int(hi))
+                        user32.DestroyIcon(hi)
+                self._custom_hicon = None
+                self._state_hicons.clear()
                 user32.PostMessageW(hwnd, _WM_DESTROY, 0, 0)
             except Exception:
                 pass
@@ -139,6 +175,8 @@ class TrayIcon:
             toggle_label = "断开连接" if self.is_connected_fn() else "一键连接"
             user32.AppendMenuW(hmenu, _MF_STRING, _ID_SHOW, "打开控制面板")
             user32.AppendMenuW(hmenu, _MF_STRING, _ID_TOGGLE, toggle_label)
+            if self.on_reclaim_proxy is not None and self.is_connected_fn():
+                user32.AppendMenuW(hmenu, _MF_STRING, _ID_RECLAIM, "恢复系统代理")
             user32.AppendMenuW(hmenu, _MF_SEPARATOR, 0, None)
             user32.AppendMenuW(hmenu, _MF_STRING, _ID_EXIT, "退出并恢复系统代理")
 
@@ -192,6 +230,8 @@ class TrayIcon:
                         threading.Thread(target=self.on_show, daemon=True).start()
                     elif cmd == _ID_TOGGLE:
                         threading.Thread(target=self.on_toggle, daemon=True).start()
+                    elif cmd == _ID_RECLAIM and self.on_reclaim_proxy is not None:
+                        threading.Thread(target=self.on_reclaim_proxy, daemon=True).start()
                     elif cmd == _ID_EXIT:
                         threading.Thread(target=self.on_exit, daemon=True).start()
                     return 0
@@ -215,14 +255,29 @@ class TrayIcon:
                 self._started.set()
                 return
 
-            hicon = None
-            if self.icon_path and Path(self.icon_path).exists():
+            for st_name, st_path in self.icon_paths.items():
+                if st_path and Path(st_path).exists():
+                    loaded = user32.LoadImageW(
+                        None,
+                        st_path,
+                        _IMAGE_ICON,
+                        32,
+                        32,
+                        _LR_LOADFROMFILE,
+                    )
+                    if loaded:
+                        self._state_hicons[st_name] = loaded
+            hicon = (
+                self._state_hicons.get(self._state)
+                or self._state_hicons.get("idle")
+            )
+            if not hicon and self.icon_path and Path(self.icon_path).exists():
                 loaded = user32.LoadImageW(
                     None,
                     self.icon_path,
                     _IMAGE_ICON,
-                    16,
-                    16,
+                    32,
+                    32,
                     _LR_LOADFROMFILE,
                 )
                 if loaded:

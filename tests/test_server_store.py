@@ -254,6 +254,31 @@ class TestServerStoreAndHttp(unittest.TestCase):
         self.assertTrue(res["has_update"])
         self.assertEqual(res["latest_version"], "2.3.0")
 
+    def test_tray_defaults_proxy_guard_wakeup_and_public_sampling(self) -> None:
+        from unittest import mock
+
+        st = self._req("/api/state")
+        self.assertTrue(st["settings"]["minimize_to_tray"])
+        self.assertTrue(st["settings"]["guard_system_proxy"])
+
+        woked = {"ok": False}
+        self.store.set_ui_callbacks(show_cb=lambda: woked.__setitem__("ok", True))
+        show_res = self._req("/api/window/show", {})
+        self.assertTrue(show_res["shown"])
+        self.assertTrue(woked["ok"])
+
+        with mock.patch("app.win_proxy.reclaim_system_proxy") as m_reclaim, \
+             mock.patch.object(self.store.mgr, "is_running", return_value=True):
+            self.store.mgr.active_mode = "system"
+            rec_res = self._req("/api/proxy/reclaim", {})
+            self.assertTrue(rec_res["ok"])
+            m_reclaim.assert_called_once()
+
+        pool = [{"name": f"N{i}", "type": "socks5", "server": f"1.1.1.{i}", "port": 1080} for i in range(1, 31)]
+        with mock.patch("app.node_parser.fetch_subscription", return_value=pool):
+            pub_res = self._req("/api/public/refresh", {})
+            self.assertEqual(pub_res["count"], 15)
+
 
 if __name__ == "__main__":
     unittest.main()
