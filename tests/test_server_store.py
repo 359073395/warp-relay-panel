@@ -260,6 +260,14 @@ class TestServerStoreAndHttp(unittest.TestCase):
         st = self._req("/api/state")
         self.assertTrue(st["settings"]["minimize_to_tray"])
         self.assertTrue(st["settings"]["guard_system_proxy"])
+        self.assertEqual(st["settings"]["ui_theme"], "auto")
+        self.assertIn("system_light", st)
+
+        rt = self._req("/api/runtime")
+        self.assertIn("system_light", rt)
+
+        saved_theme = self._req("/api/settings", {"ui_theme": "light"})
+        self.assertEqual(saved_theme["settings"]["ui_theme"], "light")
 
         woked = {"ok": False}
         self.store.set_ui_callbacks(show_cb=lambda: woked.__setitem__("ok", True))

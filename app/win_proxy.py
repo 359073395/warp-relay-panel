@@ -119,7 +119,36 @@ def try_acquire_single_instance(name: str = "Local\\StarBridgePanelMutex") -> bo
         return True
 
 
-def enable_acrylic_backdrop(hwnd: int) -> bool:
+def is_system_light_theme() -> bool:
+    """检测 Windows 当前应用外观是否为浅色模式（AppsUseLightTheme=1）。"""
+    if sys.platform != "win32":
+        return False
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            0,
+            winreg.KEY_READ,
+        ) as k:
+            val, _ = winreg.QueryValueEx(k, "AppsUseLightTheme")
+            return bool(int(val))
+    except Exception:
+        return True
+
+
+def set_window_theme(hwnd: int, dark: bool) -> bool:
+    """设置 Windows 标题栏深浅色模式（DWMWA_USE_IMMERSIVE_DARK_MODE=20）。"""
+    if sys.platform != "win32" or not hwnd:
+        return False
+    try:
+        dwm = ctypes.windll.dwmapi
+        hr = int(dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1 if dark else 0)), 4))
+        return hr == 0
+    except Exception:
+        return False
+
+
+def enable_acrylic_backdrop(hwnd: int, dark: bool | None = None) -> bool:
     """在 Windows 11 启用原生 Acrylic 半透明亚克力磨砂窗体背景。"""
     if sys.platform != "win32" or not hwnd:
         return False
@@ -132,9 +161,10 @@ def enable_acrylic_backdrop(hwnd: int) -> bool:
                 ("bottom", ctypes.c_int),
             ]
 
+        is_dark = (not is_system_light_theme()) if dark is None else bool(dark)
         dwm = ctypes.windll.dwmapi
         dwm.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARGINS(-1, -1, -1, -1)))
-        dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)
+        dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1 if is_dark else 0)), 4)
         hr = int(dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(ctypes.c_int(3)), 4))
         return hr == 0
     except Exception:

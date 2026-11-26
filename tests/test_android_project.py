@@ -65,6 +65,8 @@ class TestAndroidProjectAndWorkflow(unittest.TestCase):
         self.assertIn("visibilitychange", desktop_html)
         self.assertIn("backdrop-filter", android_html)
         self.assertIn("backdrop-filter", desktop_html)
+        self.assertIn("prefers-color-scheme: light", android_html)
+        self.assertIn("html.theme-light", desktop_html)
 
         node_parser_kt = (ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "NodeParser.kt").read_text(encoding="utf-8")
         self.assertIn("parseWireguard", node_parser_kt)

@@ -99,6 +99,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "minimize_to_tray": True,
     "guard_system_proxy": True,
     "smart_auto_select": False,
+    "ui_theme": "auto",              # auto | light | dark
 }
 
 
@@ -125,6 +126,7 @@ class PanelStore:
         self._show_window_cb: Any = None
         self._last_tray_state: str = ""
         self.acrylic_active: bool = False
+        self._window_hwnd: int = 0
         self.proxy_guard_healed_count: int = 0
         self.proxy_guard_last_at: str = ""
         self.mgr = mihomo_mgr.MihomoManager(self.base_dir)
@@ -198,6 +200,12 @@ class PanelStore:
                     s["exit_mode"] = src if src in ("vpngate", "residential") else "vpngate"
 
             self._write_json(self.settings_file, s)
+            if "ui_theme" in patch and self._window_hwnd:
+                ui_t = str(s.get("ui_theme") or "auto")
+                is_light = (ui_t == "light") or (
+                    ui_t != "dark" and win_proxy.is_system_light_theme()
+                )
+                win_proxy.set_window_theme(self._window_hwnd, dark=not is_light)
             return s
 
     def _active_or_sys_proxy(self) -> str | None:
@@ -1469,6 +1477,7 @@ class PanelStore:
         return {
             "app_version": updater.APP_VERSION,
             "acrylic_active": self.acrylic_active,
+            "system_light": win_proxy.is_system_light_theme(),
             "settings": settings,
             "is_admin": win_proxy.is_admin(),
             "core_status": self.mgr.get_core_status(),
@@ -1572,6 +1581,7 @@ def create_handler(store: PanelStore) -> type[BaseHTTPRequestHandler]:
                 self._send_json({
                     "ok": True,
                     "acrylic_active": store.acrylic_active,
+                    "system_light": win_proxy.is_system_light_theme(),
                     "runtime": store.mgr.get_runtime_status(),
                     "smart_status": dict(store.smart_state),
                     "core_download": dict(store.core_dl_state),
@@ -1822,6 +1832,11 @@ def main() -> None:
         try:
             import webview  # type: ignore
 
+            init_settings = STORE.get_settings()
+            init_ui_theme = str(init_settings.get("ui_theme") or "auto")
+            init_light = (init_ui_theme == "light") or (
+                init_ui_theme != "dark" and win_proxy.is_system_light_theme()
+            )
             force_exit = False
             window = webview.create_window(
                 "星桥 · StarBridge",
@@ -1829,7 +1844,7 @@ def main() -> None:
                 width=940,
                 height=636,
                 min_size=(800, 560),
-                background_color="#0d1322",
+                background_color="#f5f7fb" if init_light else "#0d1322",
                 transparent=True,
             )
 
@@ -1878,9 +1893,15 @@ def main() -> None:
             def _on_shown() -> None:
                 try:
                     hwnd = int(window.native.Handle.ToInt64())
-                    STORE.acrylic_active = win_proxy.enable_acrylic_backdrop(hwnd)
+                    STORE._window_hwnd = hwnd
+                    cur_theme = str(STORE.get_settings().get("ui_theme") or "auto")
+                    is_light = (cur_theme == "light") or (
+                        cur_theme != "dark" and win_proxy.is_system_light_theme()
+                    )
+                    STORE.acrylic_active = win_proxy.enable_acrylic_backdrop(hwnd, dark=not is_light)
                     window.evaluate_js(
                         f"document.documentElement.classList.toggle('acrylic', {str(STORE.acrylic_active).lower()});"
+                        f"document.documentElement.classList.toggle('theme-light', {str(is_light).lower()});"
                     )
                 except Exception:
                     pass
