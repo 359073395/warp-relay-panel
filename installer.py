@@ -168,7 +168,7 @@ def register_uninstall_entry(install_dir: Path, exe_path: Path, uninst_ps1: Path
         winreg.SetValueEx(key, "DisplayIcon", 0, winreg.REG_SZ, str(exe_path))
         winreg.SetValueEx(key, "InstallLocation", 0, winreg.REG_SZ, str(install_dir))
         winreg.SetValueEx(key, "Publisher", 0, winreg.REG_SZ, "StarBridge")
-        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "2.2.5")
+        winreg.SetValueEx(key, "DisplayVersion", 0, winreg.REG_SZ, "2.2.6")
         winreg.SetValueEx(key, "UninstallString", 0, winreg.REG_SZ, cmd)
         winreg.SetValueEx(key, "NoModify", 0, winreg.REG_DWORD, 1)
         winreg.SetValueEx(key, "NoRepair", 0, winreg.REG_DWORD, 1)

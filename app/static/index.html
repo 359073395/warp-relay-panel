@@ -7,98 +7,100 @@
   <link rel="icon" type="image/png" href="/starbridge.png" />
   <style>
     :root {
-      --text: rgba(255, 255, 255, 0.96);
-      --sec: rgba(242, 244, 248, 0.72);
-      --tert: rgba(242, 244, 248, 0.48);
-      --glass: rgba(255, 255, 255, 0.085);
-      --glass-strong: rgba(255, 255, 255, 0.14);
-      --border: rgba(255, 255, 255, 0.17);
-      --border-soft: rgba(255, 255, 255, 0.10);
-      --sidebar-bg: rgba(255, 255, 255, 0.06);
-      --main-bg: rgba(255, 255, 255, 0.02);
-      --tabbar-bg: rgba(255, 255, 255, 0.04);
-      --seg-bg: rgba(255, 255, 255, 0.10);
-      --seg-active-bg: rgba(255, 255, 255, 0.22);
+      --text: #f8fafc;
+      --sec: rgba(241, 245, 249, 0.82);
+      --tert: rgba(226, 232, 240, 0.58);
+      --glass-grad: linear-gradient(155deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.055) 55%, rgba(255, 255, 255, 0.095) 100%);
+      --glass-strong: rgba(255, 255, 255, 0.16);
+      --border: rgba(255, 255, 255, 0.24);
+      --border-soft: rgba(255, 255, 255, 0.12);
+      --sidebar-bg: linear-gradient(165deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.04) 100%);
+      --main-bg: rgba(255, 255, 255, 0.015);
+      --tabbar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.03) 100%);
+      --seg-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.06) 100%);
+      --seg-active-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.30) 0%, rgba(255, 255, 255, 0.16) 100%);
       --seg-active-text: #ffffff;
-      --btn-bg: rgba(255, 255, 255, 0.11);
-      --btn-hover: rgba(255, 255, 255, 0.18);
-      --btn-border: rgba(255, 255, 255, 0.16);
+      --btn-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.08) 100%);
+      --btn-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.13) 100%);
+      --btn-border: rgba(255, 255, 255, 0.24);
       --btn-text: #ffffff;
-      --switch-track: rgba(255, 255, 255, 0.24);
-      --input-bg: rgba(0, 0, 0, 0.24);
-      --input-border: rgba(255, 255, 255, 0.15);
+      --switch-track: rgba(255, 255, 255, 0.26);
+      --input-bg: rgba(9, 13, 24, 0.36);
+      --input-border: rgba(255, 255, 255, 0.20);
       --option-bg: #141926;
-      --row-hover: rgba(255, 255, 255, 0.06);
-      --row-selected: rgba(48, 209, 88, 0.16);
-      --scroll-thumb: rgba(255, 255, 255, 0.20);
+      --row-hover: rgba(255, 255, 255, 0.08);
+      --row-selected: linear-gradient(90deg, rgba(48, 209, 88, 0.22), rgba(48, 209, 88, 0.10));
+      --scroll-thumb: rgba(255, 255, 255, 0.24);
       --accent-green: #6ee7b7;
-      --accent-blue: #60a5fa;
+      --accent-blue: #7dd3fc;
       --accent-warn: #fde68a;
       --accent-err: #fecaca;
-      --banner-bg: rgba(10, 132, 255, 0.18);
-      --banner-border: rgba(90, 175, 255, 0.36);
-      --banner-text: #dbeafe;
-      --banner-ok-bg: rgba(48, 209, 88, 0.16);
-      --banner-ok-border: rgba(90, 235, 130, 0.36);
+      --banner-bg: linear-gradient(135deg, rgba(10, 132, 255, 0.24), rgba(56, 189, 248, 0.14));
+      --banner-border: rgba(125, 211, 252, 0.42);
+      --banner-text: #e0f2fe;
+      --banner-ok-bg: linear-gradient(135deg, rgba(48, 209, 88, 0.22), rgba(16, 185, 129, 0.12));
+      --banner-ok-border: rgba(110, 231, 183, 0.42);
       --banner-ok-text: #d1fae5;
-      --banner-err-bg: rgba(255, 69, 58, 0.20);
-      --banner-err-border: rgba(255, 105, 97, 0.44);
-      --banner-err-text: #fecaca;
-      --modal-bg: rgba(24, 28, 40, 0.88);
-      --log-bg: rgba(6, 9, 18, 0.72);
-      --toast-bg: rgba(28, 32, 44, 0.90);
+      --banner-err-bg: linear-gradient(135deg, rgba(255, 69, 58, 0.24), rgba(239, 68, 68, 0.14));
+      --banner-err-border: rgba(252, 165, 165, 0.44);
+      --banner-err-text: #fee2e2;
+      --modal-bg: linear-gradient(160deg, rgba(26, 33, 50, 0.90), rgba(17, 22, 36, 0.92));
+      --log-bg: rgba(6, 9, 18, 0.76);
+      --toast-bg: linear-gradient(155deg, rgba(30, 38, 56, 0.92), rgba(20, 26, 40, 0.94));
       --toast-text: #ffffff;
-      --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+      --glass-shadow: 0 10px 28px rgba(0, 0, 0, 0.30), inset 0 1.5px 0 rgba(255, 255, 255, 0.30), inset 1px 0 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.20);
+      --pill-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.34), inset 0 -1px 0 rgba(0, 0, 0, 0.14);
       --ios-blue: #0A84FF;
       --ios-green: #30D158;
       --ios-orange: #FF9F0A;
       --ios-red: #FF453A;
     }
 
-    /* iOS 浅色毛玻璃（白底黑字）：适配 Windows 浅色主题与亮色壁纸/背景窗口 */
+    /* Apple iOS 26 液态玻璃（浅色高对比版：晶莹高光折射 + 深墨黑清晰字体） */
     html.theme-light {
-      --text: #0f172a;
-      --sec: #475569;
-      --tert: #64748b;
-      --glass: rgba(255, 255, 255, 0.72);
-      --glass-strong: rgba(255, 255, 255, 0.86);
-      --border: rgba(15, 23, 42, 0.10);
-      --border-soft: rgba(15, 23, 42, 0.08);
-      --sidebar-bg: rgba(255, 255, 255, 0.56);
-      --main-bg: rgba(255, 255, 255, 0.28);
-      --tabbar-bg: rgba(255, 255, 255, 0.50);
-      --seg-bg: rgba(15, 23, 42, 0.07);
-      --seg-active-bg: #ffffff;
-      --seg-active-text: #0f172a;
-      --btn-bg: rgba(255, 255, 255, 0.82);
-      --btn-hover: rgba(255, 255, 255, 0.96);
-      --btn-border: rgba(15, 23, 42, 0.13);
-      --btn-text: #0f172a;
-      --switch-track: rgba(15, 23, 42, 0.22);
-      --input-bg: rgba(255, 255, 255, 0.86);
-      --input-border: rgba(15, 23, 42, 0.15);
+      --text: #0b1220;
+      --sec: #334155;
+      --tert: #475569;
+      --glass-grad: linear-gradient(155deg, rgba(255, 255, 255, 0.86) 0%, rgba(255, 255, 255, 0.64) 55%, rgba(242, 247, 255, 0.76) 100%);
+      --glass-strong: rgba(255, 255, 255, 0.90);
+      --border: rgba(255, 255, 255, 0.88);
+      --border-soft: rgba(15, 23, 42, 0.085);
+      --sidebar-bg: linear-gradient(170deg, rgba(255, 255, 255, 0.68) 0%, rgba(246, 249, 255, 0.50) 100%);
+      --main-bg: rgba(255, 255, 255, 0.18);
+      --tabbar-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.38) 100%);
+      --seg-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.075) 0%, rgba(15, 23, 42, 0.045) 100%);
+      --seg-active-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(245, 248, 255, 0.88) 100%);
+      --seg-active-text: #0b1220;
+      --btn-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(244, 247, 252, 0.74) 100%);
+      --btn-hover: linear-gradient(180deg, #ffffff 0%, rgba(248, 250, 255, 0.92) 100%);
+      --btn-border: rgba(15, 23, 42, 0.11);
+      --btn-text: #0b1220;
+      --switch-track: rgba(15, 23, 42, 0.24);
+      --input-bg: rgba(255, 255, 255, 0.84);
+      --input-border: rgba(15, 23, 42, 0.12);
       --option-bg: #ffffff;
-      --row-hover: rgba(15, 23, 42, 0.04);
-      --row-selected: rgba(48, 209, 88, 0.15);
+      --row-hover: rgba(255, 255, 255, 0.56);
+      --row-selected: linear-gradient(90deg, rgba(16, 185, 129, 0.18), rgba(52, 211, 153, 0.08));
       --scroll-thumb: rgba(15, 23, 42, 0.22);
       --accent-green: #047857;
-      --accent-blue: #0066cc;
+      --accent-blue: #005ec4;
       --accent-warn: #b45309;
       --accent-err: #dc2626;
-      --banner-bg: rgba(10, 132, 255, 0.12);
-      --banner-border: rgba(10, 132, 255, 0.30);
-      --banner-text: #1d4ed8;
-      --banner-ok-bg: rgba(48, 209, 88, 0.14);
-      --banner-ok-border: rgba(16, 185, 129, 0.36);
-      --banner-ok-text: #047857;
-      --banner-err-bg: rgba(239, 68, 68, 0.13);
-      --banner-err-border: rgba(239, 68, 68, 0.34);
-      --banner-err-text: #b91c1c;
-      --modal-bg: rgba(248, 250, 252, 0.92);
-      --log-bg: rgba(241, 245, 249, 0.92);
-      --toast-bg: rgba(255, 255, 255, 0.94);
-      --toast-text: #0f172a;
-      --card-shadow: 0 2px 10px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+      --banner-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(219, 234, 254, 0.78));
+      --banner-border: rgba(37, 99, 235, 0.28);
+      --banner-text: #1e40af;
+      --banner-ok-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(209, 250, 229, 0.80));
+      --banner-ok-border: rgba(5, 150, 105, 0.30);
+      --banner-ok-text: #065f46;
+      --banner-err-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(254, 226, 226, 0.82));
+      --banner-err-border: rgba(220, 38, 38, 0.30);
+      --banner-err-text: #991b1b;
+      --modal-bg: linear-gradient(160deg, rgba(255, 255, 255, 0.94), rgba(244, 247, 253, 0.90));
+      --log-bg: rgba(241, 245, 249, 0.94);
+      --toast-bg: linear-gradient(155deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 253, 0.92));
+      --toast-text: #0b1220;
+      --glass-shadow: 0 10px 28px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.06), inset 0 1.5px 0 rgba(255, 255, 255, 0.96), inset 1px 0 0 rgba(255, 255, 255, 0.72), inset 0 -1px 0 rgba(15, 23, 42, 0.05);
+      --pill-shadow: 0 3px 10px rgba(15, 23, 42, 0.08), inset 0 1.5px 0 rgba(255, 255, 255, 0.98), inset 0 -1px 0 rgba(15, 23, 42, 0.06);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -109,32 +111,36 @@
       display: flex;
       -webkit-font-smoothing: antialiased;
       background:
-        radial-gradient(circle at 18% 22%, rgba(96, 165, 250, 0.30) 0%, transparent 45%),
-        radial-gradient(circle at 80% 35%, rgba(45, 212, 191, 0.20) 0%, transparent 42%),
-        radial-gradient(circle at 50% 84%, rgba(129, 140, 248, 0.22) 0%, transparent 46%),
-        linear-gradient(135deg, #0d1526 0%, #101b30 50%, #0b1322 100%);
+        radial-gradient(circle at 14% 18%, rgba(56, 189, 248, 0.34) 0%, transparent 44%),
+        radial-gradient(circle at 84% 28%, rgba(52, 211, 153, 0.24) 0%, transparent 42%),
+        radial-gradient(circle at 48% 88%, rgba(129, 140, 248, 0.26) 0%, transparent 46%),
+        linear-gradient(135deg, #0b1221 0%, #101b32 52%, #0a101d 100%);
     }
     html.theme-light body {
       background:
-        radial-gradient(circle at 18% 20%, rgba(147, 197, 253, 0.38) 0%, transparent 46%),
-        radial-gradient(circle at 82% 32%, rgba(167, 243, 208, 0.32) 0%, transparent 44%),
-        linear-gradient(135deg, #eef3fa 0%, #f5f7fb 52%, #e9eff8 100%);
+        radial-gradient(circle at 12% 16%, rgba(96, 165, 250, 0.34) 0%, transparent 42%),
+        radial-gradient(circle at 85% 24%, rgba(52, 211, 153, 0.26) 0%, transparent 40%),
+        radial-gradient(circle at 52% 90%, rgba(167, 139, 250, 0.20) 0%, transparent 44%),
+        linear-gradient(135deg, #e7eef9 0%, #f3f6fc 50%, #e4ecf8 100%);
     }
-    /* Windows 11 原生 Acrylic 亚克力：深色加烟熏底色防亮窗透白，浅色用乳白半透明磨砂配黑字 */
     html.acrylic body {
-      background: linear-gradient(135deg, rgba(16, 22, 36, 0.72), rgba(11, 16, 28, 0.80));
+      background: linear-gradient(135deg, rgba(16, 22, 36, 0.68), rgba(11, 16, 28, 0.76));
     }
     html.acrylic.theme-light body {
-      background: linear-gradient(135deg, rgba(246, 248, 252, 0.72), rgba(238, 242, 248, 0.78));
+      background:
+        radial-gradient(circle at 15% 18%, rgba(147, 197, 253, 0.22) 0%, transparent 45%),
+        radial-gradient(circle at 85% 75%, rgba(110, 231, 183, 0.16) 0%, transparent 45%),
+        linear-gradient(135deg, rgba(245, 248, 253, 0.68), rgba(235, 241, 250, 0.74));
     }
 
     /* 保留原星桥图标外貌，仅按连接状态变色 */
-    .brand-ico-wrap { position: relative; display: inline-flex; width: 24px; height: 24px; flex-shrink: 0; }
+    .brand-ico-wrap { position: relative; display: inline-flex; width: 26px; height: 26px; flex-shrink: 0; }
     .sb-logo {
-      width: 24px; height: 24px; border-radius: 6px; object-fit: cover;
+      width: 26px; height: 26px; border-radius: 7px; object-fit: cover;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
       transition: filter 0.25s ease, opacity 0.25s ease;
     }
-    .sb-logo.idle { filter: grayscale(1) brightness(0.92) contrast(1.06); opacity: 0.85; }
+    .sb-logo.idle { filter: grayscale(1) brightness(0.92) contrast(1.06); opacity: 0.88; }
     .sb-logo.busy { filter: hue-rotate(192deg) saturate(1.55) brightness(1.06); opacity: 1; }
     .sb-logo.on   { filter: hue-rotate(-52deg) saturate(1.28) brightness(1.04); opacity: 1; }
     .sb-logo.warn { filter: grayscale(0.65) brightness(0.92); opacity: 0.95; }
@@ -145,137 +151,158 @@
     html.theme-light .logo-alert-dot { border-color: #ffffff; }
     .brand-ico-wrap.is-warn .logo-alert-dot { display: block; }
 
-    /* 左侧磨砂控制栏 */
+    /* 左侧液态玻璃控制栏 */
     .sidebar {
-      width: 298px; flex-shrink: 0; height: 100vh;
+      width: 300px; flex-shrink: 0; height: 100vh;
       background: var(--sidebar-bg);
-      backdrop-filter: blur(36px) saturate(175%);
-      -webkit-backdrop-filter: blur(36px) saturate(175%);
+      backdrop-filter: blur(36px) saturate(195%);
+      -webkit-backdrop-filter: blur(36px) saturate(195%);
       border-right: 1px solid var(--border);
+      box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.25);
       display: flex; flex-direction: column; justify-content: space-between;
       padding: 15px; gap: 10px; overflow-y: auto;
     }
     .brand-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .brand { display: flex; align-items: center; gap: 8px; }
-    .brand-name { font-size: 15px; font-weight: 600; line-height: 1.1; color: var(--text); }
-    .brand-ver { font-size: 10px; color: var(--sec); }
+    .brand-name { font-size: 15px; font-weight: 700; line-height: 1.1; color: var(--text); letter-spacing: -0.01em; }
+    .brand-ver { font-size: 10px; font-weight: 600; color: var(--sec); }
 
-    /* iOS 玻璃按钮 */
+    /* 液态玻璃胶囊按钮 */
     .btn {
       border: 1px solid var(--btn-border);
       background: var(--btn-bg);
       color: var(--btn-text);
-      padding: 6px 12px; border-radius: 10px;
-      font-size: 12px; font-weight: 500; cursor: pointer; white-space: nowrap;
-      box-shadow: var(--card-shadow);
-      transition: background 0.15s ease, transform 0.1s ease;
+      padding: 6px 13px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+      backdrop-filter: blur(18px) saturate(180%);
+      box-shadow: var(--pill-shadow);
+      transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), background 0.16s ease, box-shadow 0.16s ease;
     }
-    .btn:hover { background: var(--btn-hover); }
-    .btn:active { transform: scale(0.97); }
-    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn:hover { background: var(--btn-hover); transform: translateY(-0.5px); }
+    .btn:active { transform: scale(0.95); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
     .btn.primary {
-      background: rgba(10, 132, 255, 0.90);
-      border-color: rgba(10, 132, 255, 0.55);
+      background: linear-gradient(165deg, #3ba1ff 0%, #0A84FF 60%, #006be0 100%);
+      border-color: rgba(255, 255, 255, 0.45);
       color: #ffffff;
       font-weight: 600;
-      box-shadow: 0 2px 8px rgba(10, 132, 255, 0.22);
+      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.15);
+      box-shadow: 0 6px 16px rgba(10, 132, 255, 0.30), inset 0 1.5px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 rgba(0, 0, 0, 0.14);
     }
-    .btn.primary:hover { background: #0A84FF; }
-    .btn.xs { padding: 4px 9px; font-size: 11px; border-radius: 8px; }
+    .btn.primary:hover { background: linear-gradient(165deg, #52adff 0%, #148cff 60%, #0070ec 100%); }
+    .btn.xs { padding: 4px 10px; font-size: 11px; border-radius: 999px; }
     .btn.danger { background: var(--banner-err-bg); border-color: var(--banner-err-border); color: var(--banner-err-text); }
 
-    /* iOS 电源按钮 */
+    /* 水滴晶体电源球 */
     .power-zone {
       display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 6px 0 2px;
     }
     .power-btn {
-      width: 104px; height: 104px; border-radius: 50%; cursor: pointer;
-      background: radial-gradient(circle at 30% 25%, rgba(56, 152, 255, 0.86), rgba(10, 132, 255, 0.72));
-      border: 1.5px solid rgba(90, 175, 255, 0.65);
-      box-shadow: 0 10px 26px rgba(10, 132, 255, 0.25), inset 0 1px 2px rgba(255, 255, 255, 0.42);
-      backdrop-filter: blur(18px);
-      color: #ffffff; font-size: 13px; font-weight: 600;
+      position: relative; overflow: hidden;
+      width: 106px; height: 106px; border-radius: 50%; cursor: pointer;
+      background: radial-gradient(circle at 32% 24%, rgba(105, 185, 255, 0.96), rgba(10, 132, 255, 0.88) 62%, rgba(0, 96, 214, 0.92) 100%);
+      border: 1.5px solid rgba(255, 255, 255, 0.65);
+      box-shadow: 0 14px 30px rgba(10, 132, 255, 0.32), 0 2px 6px rgba(10, 132, 255, 0.22), inset 0 2px 3px rgba(255, 255, 255, 0.70), inset 0 -4px 8px rgba(0, 58, 145, 0.28);
+      backdrop-filter: blur(20px);
+      color: #ffffff; font-size: 13px; font-weight: 700; letter-spacing: 0.02em;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
-      transition: all 0.22s ease;
+      transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease, background 0.22s ease;
     }
-    .power-btn:hover { transform: scale(1.03); }
+    .power-btn::before {
+      content: ""; position: absolute; top: 5px; left: 16%; right: 16%; height: 38%;
+      border-radius: 50%;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.04) 100%);
+      pointer-events: none;
+    }
+    .power-btn:hover { transform: scale(1.04); box-shadow: 0 16px 34px rgba(10, 132, 255, 0.38), inset 0 2px 3px rgba(255, 255, 255, 0.78); }
+    .power-btn:active { transform: scale(0.96); }
     .power-btn.connected {
-      background: radial-gradient(circle at 30% 25%, rgba(52, 211, 153, 0.88), rgba(16, 185, 129, 0.76));
-      border-color: rgba(74, 222, 128, 0.72);
-      box-shadow: 0 10px 28px rgba(16, 185, 129, 0.26), inset 0 1px 2px rgba(255, 255, 255, 0.45);
+      background: radial-gradient(circle at 32% 24%, rgba(92, 232, 160, 0.96), rgba(16, 185, 129, 0.88) 62%, rgba(5, 135, 92, 0.92) 100%);
+      border-color: rgba(255, 255, 255, 0.70);
+      box-shadow: 0 14px 30px rgba(16, 185, 129, 0.32), inset 0 2px 3px rgba(255, 255, 255, 0.72), inset 0 -4px 8px rgba(4, 92, 60, 0.26);
     }
     .power-btn.connected svg { color: #ffffff; }
     .power-btn.connected:hover {
-      background: radial-gradient(circle at 30% 25%, rgba(248, 113, 113, 0.90), rgba(220, 38, 38, 0.80));
-      border-color: rgba(252, 165, 165, 0.72);
-      box-shadow: 0 10px 26px rgba(220, 38, 38, 0.24);
+      background: radial-gradient(circle at 32% 24%, rgba(252, 129, 129, 0.96), rgba(239, 68, 68, 0.88) 62%, rgba(185, 28, 28, 0.92) 100%);
+      border-color: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 14px 30px rgba(220, 38, 38, 0.32), inset 0 2px 3px rgba(255, 255, 255, 0.70);
     }
     .power-btn.connected:hover svg { color: #ffffff; }
     .power-btn:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
-    .power-sub { font-size: 12px; color: var(--sec); text-align: center; }
+    .power-sub { font-size: 12px; font-weight: 500; color: var(--sec); text-align: center; }
 
-    /* iOS 分组毛玻璃卡片 */
+    /* 液态玻璃分组卡片 */
     .ios-group {
-      background: var(--glass);
+      background: var(--glass-grad);
       border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: var(--card-shadow);
-      backdrop-filter: blur(22px);
+      border-radius: 18px;
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(28px) saturate(190%);
+      -webkit-backdrop-filter: blur(28px) saturate(190%);
       overflow: hidden;
     }
     .ios-cell {
-      padding: 8px 12px;
+      padding: 8.5px 13px;
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       font-size: 12px;
       border-bottom: 1px solid var(--border-soft);
     }
     .ios-cell:last-child { border-bottom: 0; }
-    .info-label { color: var(--sec); white-space: nowrap; }
-    .info-val { font-weight: 500; color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 158px; }
+    .info-label { color: var(--sec); font-weight: 500; white-space: nowrap; }
+    .info-val { font-weight: 600; color: var(--text); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 158px; }
 
-    /* iOS 原生圆滑开关 */
+    /* 液态玻璃胶囊开关 */
     .ios-switch {
       position: relative; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
-      font-size: 12px; color: var(--sec);
+      font-size: 12px; font-weight: 500; color: var(--sec);
     }
     .ios-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
     .ios-switch .slider {
-      width: 36px; height: 21px; border-radius: 999px;
+      width: 38px; height: 22px; border-radius: 999px;
       background: var(--switch-track);
-      position: relative; transition: background 0.18s ease; flex-shrink: 0;
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.16);
+      position: relative; transition: background 0.2s ease; flex-shrink: 0;
     }
     .ios-switch .slider::after {
       content: ""; position: absolute; top: 2px; left: 2px;
-      width: 17px; height: 17px; border-radius: 50%; background: #fff;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.30); transition: transform 0.18s ease;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.24), inset 0 1px 0 #ffffff;
+      transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
     }
-    .ios-switch input:checked + .slider { background: var(--ios-green); }
-    .ios-switch input:checked + .slider::after { transform: translateX(15px); }
+    .ios-switch input:checked + .slider { background: linear-gradient(180deg, #34d399, #22c55e); }
+    .ios-switch input:checked + .slider::after { transform: translateX(16px); }
     .ios-switch.sm .slider { transform: scale(0.86); }
 
     .diag-card {
-      background: var(--glass); border: 1px solid var(--border); border-radius: 13px;
-      padding: 9px 12px; font-size: 11.5px; color: var(--text); display: flex; flex-direction: column; gap: 6px;
-      box-shadow: var(--card-shadow);
+      background: var(--glass-grad); border: 1px solid var(--border); border-radius: 16px;
+      padding: 10px 13px; font-size: 11.5px; font-weight: 500; color: var(--text);
+      display: flex; flex-direction: column; gap: 6px;
+      backdrop-filter: blur(26px) saturate(185%);
+      box-shadow: var(--glass-shadow);
     }
-    .diag-card.ok { background: var(--banner-ok-bg); border-color: var(--banner-ok-border); }
-    .diag-card.err { background: var(--banner-err-bg); border-color: var(--banner-err-border); }
+    .diag-card.ok { background: var(--banner-ok-bg); border-color: var(--banner-ok-border); color: var(--banner-ok-text); }
+    .diag-card.err { background: var(--banner-err-bg); border-color: var(--banner-err-border); color: var(--banner-err-text); }
 
     .mode-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .chip-btn {
-      font-size: 12px; font-weight: 500; padding: 7px 8px; border-radius: 10px; cursor: pointer;
+      font-size: 12px; font-weight: 600; padding: 7px 10px; border-radius: 999px; cursor: pointer;
       background: var(--btn-bg); color: var(--text);
       border: 1px solid var(--btn-border); text-align: center;
-      box-shadow: var(--card-shadow);
+      backdrop-filter: blur(18px) saturate(180%);
+      box-shadow: var(--pill-shadow);
+      transition: transform 0.14s ease, background 0.14s ease;
     }
     .chip-btn:hover { background: var(--btn-hover); }
-    .chip-btn.warn { border-color: rgba(245, 158, 11, 0.55); color: var(--accent-warn); background: rgba(245, 158, 11, 0.14); }
+    .chip-btn:active { transform: scale(0.96); }
+    .chip-btn.warn { border-color: var(--banner-err-border); color: var(--accent-warn); background: rgba(245, 158, 11, 0.16); }
     .chip-btn.active { background: var(--banner-bg); border-color: var(--banner-border); color: var(--banner-text); }
 
     @keyframes spin { to { transform: rotate(360deg); } }
     .spin { animation: spin 0.9s linear infinite; }
 
-    /* 右侧磨砂工作区 */
+    /* 右侧液态玻璃工作区 */
     .main {
       flex: 1; display: flex; flex-direction: column; height: 100vh; min-width: 0;
       background: var(--main-bg);
@@ -284,21 +311,25 @@
       display: flex; align-items: center; justify-content: space-between; gap: 8px;
       padding: 11px 18px;
       background: var(--tabbar-bg);
+      backdrop-filter: blur(26px) saturate(185%);
       border-bottom: 1px solid var(--border-soft);
     }
     .ios-seg {
-      display: inline-flex; padding: 3px; border-radius: 11px;
+      display: inline-flex; padding: 3px; border-radius: 999px;
       background: var(--seg-bg);
       border: 1px solid var(--border-soft);
+      backdrop-filter: blur(20px) saturate(180%);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
       gap: 2px; flex-wrap: wrap;
     }
     .ios-seg button {
       border: none; background: transparent; color: var(--sec);
-      font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: 8px; cursor: pointer;
+      font-size: 12px; font-weight: 600; padding: 5px 13px; border-radius: 999px; cursor: pointer;
+      transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
     }
     .ios-seg button.active {
-      background: var(--seg-active-bg); color: var(--seg-active-text); font-weight: 600;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      background: var(--seg-active-bg); color: var(--seg-active-text); font-weight: 700;
+      box-shadow: var(--pill-shadow);
     }
 
     .pane {
@@ -310,40 +341,43 @@
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
     input, select, textarea {
-      background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 10px;
-      color: var(--text); padding: 7px 11px; font-size: 12px; outline: none; font-family: inherit;
+      background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 999px;
+      color: var(--text); padding: 7px 14px; font-size: 12px; font-weight: 500; outline: none; font-family: inherit;
+      backdrop-filter: blur(18px);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05), inset 0 -1px 0 rgba(255, 255, 255, 0.35);
     }
+    textarea { border-radius: 14px; padding: 9px 12px; width: 100%; min-height: 68px; resize: vertical; font-family: ui-monospace, Consolas, monospace; }
     input::placeholder, textarea::placeholder { color: var(--tert); }
     select option { background: var(--option-bg); color: var(--text); }
-    textarea { width: 100%; min-height: 68px; resize: vertical; font-family: ui-monospace, Consolas, monospace; }
 
     .node-list {
       flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0;
-      background: var(--glass);
+      background: var(--glass-grad);
       border: 1px solid var(--border);
-      border-radius: 15px;
-      box-shadow: var(--card-shadow);
-      backdrop-filter: blur(22px);
+      border-radius: 20px;
+      box-shadow: var(--glass-shadow);
+      backdrop-filter: blur(28px) saturate(190%);
+      -webkit-backdrop-filter: blur(28px) saturate(190%);
     }
     .node-list::-webkit-scrollbar { width: 6px; }
     .node-list::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 999px; }
 
     .node-item {
       display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      padding: 10px 14px;
+      padding: 10.5px 15px;
       border-bottom: 1px solid var(--border-soft);
-      font-size: 13px; color: var(--text); cursor: pointer; transition: background 0.12s;
+      font-size: 13px; color: var(--text); cursor: pointer; transition: background 0.14s ease;
     }
     .node-item:last-child { border-bottom: 0; }
     .node-item:hover { background: var(--row-hover); }
     .node-item.selected { background: var(--row-selected); }
     .node-title { font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 7px; }
-    .node-sub { font-size: 11px; color: var(--sec); margin-top: 2px; }
-    .check-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ios-green); flex-shrink: 0; }
+    .node-sub { font-size: 11px; font-weight: 500; color: var(--sec); margin-top: 2px; }
+    .check-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ios-green); flex-shrink: 0; box-shadow: 0 0 8px rgba(48, 209, 88, 0.55); }
 
-    .meta { color: var(--sec); font-size: 11.5px; }
+    .meta { color: var(--sec); font-size: 11.5px; font-weight: 500; }
     .tag {
-      display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 600;
+      display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 700;
       color: var(--accent-green); margin-left: 4px;
     }
     .tag.dc { background: var(--seg-bg); color: var(--sec); }
@@ -351,45 +385,47 @@
     .tag.err { color: var(--accent-err); }
     .tag.spd {
       background: var(--seg-bg); border: 1px solid var(--border-soft);
-      color: var(--text);
+      color: var(--text); padding: 2px 8px;
     }
 
     .empty-tip {
       flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
-      color: var(--sec); font-size: 13px; padding: 28px; text-align: center;
+      color: var(--sec); font-size: 13px; font-weight: 500; padding: 28px; text-align: center;
     }
 
     .task-banner {
       display: none; align-items: center; justify-content: space-between; gap: 10px;
-      margin: 10px 18px 0; padding: 8px 12px; border-radius: 11px; font-size: 12px; font-weight: 500;
+      margin: 10px 18px 0; padding: 8px 14px; border-radius: 999px; font-size: 12px; font-weight: 600;
       background: var(--banner-bg); border: 1px solid var(--banner-border); color: var(--banner-text);
+      backdrop-filter: blur(22px) saturate(180%);
+      box-shadow: var(--pill-shadow);
     }
     .task-banner.show { display: flex; }
     .task-banner.ok { background: var(--banner-ok-bg); border-color: var(--banner-ok-border); color: var(--banner-ok-text); }
     .task-banner.err { background: var(--banner-err-bg); border-color: var(--banner-err-border); color: var(--banner-err-text); }
 
     .modal-mask {
-      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.36); backdrop-filter: blur(8px);
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.34); backdrop-filter: blur(10px);
       display: none; align-items: center; justify-content: center; padding: 16px; z-index: 900;
     }
     .modal-mask.open { display: flex; }
     .modal {
       width: 100%; max-width: 600px; max-height: 86vh; overflow-y: auto;
-      background: var(--modal-bg); backdrop-filter: blur(36px) saturate(170%);
-      border: 1px solid var(--border); border-radius: 18px; color: var(--text);
+      background: var(--modal-bg); backdrop-filter: blur(36px) saturate(190%);
+      border: 1px solid var(--border); border-radius: 22px; color: var(--text);
       padding: 18px; display: flex; flex-direction: column; gap: 12px;
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32);
+      box-shadow: 0 24px 64px rgba(15, 23, 42, 0.32), inset 0 1.5px 0 rgba(255, 255, 255, 0.65);
     }
     pre.logs {
-      background: var(--log-bg); border: 1px solid var(--border-soft); border-radius: 11px; padding: 10px;
+      background: var(--log-bg); border: 1px solid var(--border-soft); border-radius: 13px; padding: 10px;
       font-size: 11.5px; color: var(--sec); max-height: 170px; overflow: auto; white-space: pre-wrap;
       font-family: ui-monospace, Consolas, monospace;
     }
     .toast {
-      position: fixed; bottom: 16px; right: 18px; padding: 9px 14px; border-radius: 12px;
-      background: var(--toast-bg); backdrop-filter: blur(22px);
-      border: 1px solid var(--border); color: var(--toast-text); font-size: 12px; font-weight: 500;
-      display: none; z-index: 999; max-width: 340px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+      position: fixed; bottom: 16px; right: 18px; padding: 9px 16px; border-radius: 999px;
+      background: var(--toast-bg); backdrop-filter: blur(24px) saturate(185%);
+      border: 1px solid var(--border); color: var(--toast-text); font-size: 12px; font-weight: 600;
+      display: none; z-index: 999; max-width: 340px; box-shadow: var(--glass-shadow);
     }
     .toast.err { border-color: var(--banner-err-border); background: var(--banner-err-bg); color: var(--banner-err-text); }
   </style>
@@ -412,7 +448,7 @@
           </span>
           <div>
             <div class="brand-name">星桥</div>
-            <div class="brand-ver" id="verBadge">v2.2.5</div>
+            <div class="brand-ver" id="verBadge">v2.2.6</div>
           </div>
         </div>
         <div class="row" style="gap:6px;">
