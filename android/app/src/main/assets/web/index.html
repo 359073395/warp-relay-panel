@@ -222,10 +222,13 @@
       box-shadow: var(--pill-shadow);
     }
 
-    input {
+    input, select {
       background: var(--input-bg); border: 1px solid var(--border);
-      color: var(--text); padding: 8px 12px; border-radius: 999px; font-size: 12px; font-weight: 500; flex: 1; min-width: 0;
+      color: var(--text); padding: 7px 11px; border-radius: 999px; font-size: 12px; font-weight: 500;
     }
+    input { flex: 1; min-width: 0; }
+    select option { background: #141926; color: #fff; }
+    @media (prefers-color-scheme: light) { select option { background: #ffffff; color: #0b1220; } }
     input::placeholder { color: var(--tert); }
     .task-banner {
       display: none; padding: 8px 13px; border-radius: 999px; font-size: 12px; font-weight: 600;
@@ -253,7 +256,9 @@
     .check-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ios-green); flex-shrink: 0; }
     .meta { color: var(--sec); font-size: 11px; font-weight: 500; }
     .tag { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 10.5px; font-weight: 700; color: var(--accent-green); margin-left: 4px; }
+    .tag.dc { background: var(--seg-bg); color: var(--sec); }
     .tag.warn { color: var(--accent-warn); }
+    .tag.err { color: var(--ios-red); }
     .tag.spd { background: var(--seg-bg); border: 1px solid var(--border-soft); color: var(--text); padding: 2px 7px; }
 
     .empty-tip {
@@ -284,7 +289,7 @@
   <div class="topbar">
     <div class="brand">
       <img src="starbridge.png" alt="StarBridge" id="brandLogo" class="sb-logo idle" />
-      <span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.7</small></span>
+      <span>星桥 <small id="verBadge" class="meta" style="font-weight:500;">v2.2.8</small></span>
     </div>
     <div class="row" style="gap:6px;">
       <div class="seg" id="routeModeSeg">
@@ -354,13 +359,30 @@
 
   <section id="paneExit" class="card" style="display:none;">
     <div class="row" style="justify-content:space-between;">
-      <span class="meta">启用住宅出口（需要固定住宅 IP 时开启）</span>
+      <span class="meta">启用第二跳住宅出口</span>
       <label class="ios-switch">
         <input type="checkbox" id="useExitCheck" onchange="updateSetting({use_exit_hop:this.checked})" />
         <span class="slider"></span>
       </label>
     </div>
-    <div class="row">
+    <div class="row" style="justify-content:space-between; gap:6px;">
+      <div class="seg">
+        <button id="srcVgBtn" onclick="setExitSource('vpngate')">免费住宅家宽</button>
+        <button id="srcResBtn" onclick="setExitSource('residential')">私人住宅 IP</button>
+      </div>
+      <div class="row" id="vgTools" style="gap:5px;">
+        <select id="vgClassFilter" onchange="renderExitList(STATE)">
+          <option value="residential">仅看家宽</option>
+          <option value="all">全部节点</option>
+        </select>
+        <select id="vgCountryFilter" onchange="renderExitList(STATE)">
+          <option value="ALL">全部国家</option>
+        </select>
+        <button class="btn primary xs" onclick="refreshVpnGate()">拉取家宽</button>
+        <button class="btn xs" onclick="testVpnGate()">测速优选</button>
+      </div>
+    </div>
+    <div class="row" id="resAddBar" style="display:none;">
       <input id="exitRawInput" placeholder="ip:port:user:pass 或 socks5://..." />
       <button class="btn primary" onclick="addExit()">添加</button>
     </div>
@@ -388,6 +410,7 @@
     let ACTIVE_TAB = 'entry';
     let ENTRY_VIEW = '';
     let SHOW_DEAD = false;
+    let SHOW_DEAD_EXIT = false;
     let _connectingLock = false;
     const _pending = {};
     let _reqSeq = 1;
@@ -454,8 +477,12 @@
 
     function metricsHtml(delay, speed) {
       let h = '';
-      if (typeof delay === 'number' && delay > 0) {
-        h += `<span class="tag ${delay < 300 ? '' : 'warn'}">${delay} ms</span>`;
+      if (typeof delay === 'number') {
+        if (delay > 0) {
+          h += `<span class="tag ${delay < 300 ? '' : (delay < 800 ? 'warn' : 'err')}">${delay} ms</span>`;
+        } else if (delay === -1) {
+          h += '<span class="tag dc">超时</span>';
+        }
       }
       if (typeof speed === 'number' && speed > 0) {
         h += `<span class="tag spd">${speed} Mbps</span>`;
@@ -628,19 +655,113 @@
     }
 
     function renderExitList(st) {
+      if (!st) return;
       const s = st.settings || {};
+      const exits = st.exits || [];
+      const vgNodes = st.vpngate_nodes || [];
+      const exitSource = s.exit_source || (exits.length > 0 && vgNodes.length === 0 ? 'residential' : 'vpngate');
+      const isVg = exitSource === 'vpngate';
+
+      const srcVgBtn = document.getElementById('srcVgBtn');
+      const srcResBtn = document.getElementById('srcResBtn');
+      if (srcVgBtn) srcVgBtn.classList.toggle('active', isVg);
+      if (srcResBtn) srcResBtn.classList.toggle('active', !isVg);
+      const vgTools = document.getElementById('vgTools');
+      const resBar = document.getElementById('resAddBar');
+      if (vgTools) vgTools.style.display = isVg ? 'flex' : 'none';
+      if (resBar) resBar.style.display = isVg ? 'none' : 'flex';
+
+      const clsSel = document.getElementById('vgClassFilter');
+      const clsFilter = clsSel ? clsSel.value : 'residential';
+      const cSel = document.getElementById('vgCountryFilter');
+      if (cSel) {
+        const prevCountry = cSel.value || 'ALL';
+        const countByCountry = {};
+        vgNodes.forEach(n => {
+          if (clsFilter === 'residential' && n.line_class !== 'residential') return;
+          const cc = n.country_short || 'GL';
+          countByCountry[cc] = (countByCountry[cc] || 0) + 1;
+        });
+        const westOrder = ['US', 'CA', 'GB', 'UK', 'DE', 'FR', 'NL', 'CH', 'SE', 'IT', 'ES', 'AU'];
+        const countries = Array.from(new Set(vgNodes.map(n => n.country_short).filter(Boolean))).sort((a, b) => {
+          const ia = westOrder.indexOf(a), ib = westOrder.indexOf(b);
+          if (ia !== -1 && ib !== -1) return ia - ib;
+          if (ia !== -1) return -1;
+          if (ib !== -1) return 1;
+          return a.localeCompare(b);
+        });
+        cSel.innerHTML = '<option value="ALL">全部国家</option>';
+        countries.forEach(c => {
+          const opt = document.createElement('option');
+          const cnt = countByCountry[c] || 0;
+          opt.value = c; opt.textContent = cnt ? `${c} (${cnt})` : c;
+          if (c === prevCountry) opt.selected = true;
+          cSel.appendChild(opt);
+        });
+      }
+
       const list = document.getElementById('exitList');
       list.innerHTML = '';
-      const exits = st.exits || [];
+
+      if (isVg) {
+        if (!vgNodes.length) {
+          list.innerHTML = `<div class="empty-tip">
+            <div>还没有拉取免费住宅家宽列表</div>
+            <button class="btn primary" onclick="refreshVpnGate()">一键拉取家宽</button>
+          </div>`;
+          return;
+        }
+        const countryVal = cSel ? cSel.value : 'ALL';
+        const filtered = vgNodes.filter(n => {
+          if (clsFilter === 'residential' && n.line_class !== 'residential') return false;
+          if (countryVal !== 'ALL' && n.country_short !== countryVal) return false;
+          return true;
+        });
+        const dead = filtered.filter(n => n.delay_ms === -1);
+        const visible = SHOW_DEAD_EXIT ? filtered : filtered.filter(n => n.delay_ms !== -1);
+        if (!visible.length) {
+          list.innerHTML = '<div class="empty-tip">当前筛选条件没有可用节点，可点“拉取家宽”或切换国家/全部节点。</div>';
+          return;
+        }
+        const selVgId = s.selected_vpngate_id || '';
+        visible.forEach(n => {
+          const sel = s.use_exit_hop && selVgId === n.id;
+          const tagTxt = n.line_class === 'residential' ? '家宽' : '机房';
+          const d = document.createElement('div');
+          d.className = 'node-item' + (sel ? ' selected' : '');
+          d.onclick = () => updateSetting({ use_exit_hop: true, exit_source: 'vpngate', selected_vpngate_id: n.id });
+          d.innerHTML = `<div style="min-width:0;overflow:hidden;">
+              <div class="node-title">${sel ? '<i class="check-dot"></i>' : ''}<span>${esc(n.name)}</span><span class="tag ${n.line_class === 'residential' ? '' : 'dc'}">${tagTxt}</span></div>
+              <div class="meta">${esc(n.isp || '')} · ${esc((n.proto || 'tcp').toUpperCase())} · ${Number(n.speed_mbps || 0)}M</div>
+            </div>
+            <div class="row" style="gap:5px;flex-shrink:0;">
+              ${metricsHtml(n.delay_ms, null)}
+              <button class="btn xs test-vg-btn">测速</button>
+            </div>`;
+          d.querySelector('.test-vg-btn').onclick = (ev) => { ev.stopPropagation(); testVpnGate(n.id, n.name); };
+          list.appendChild(d);
+        });
+        if (dead.length) {
+          const f = document.createElement('div');
+          f.className = 'meta';
+          f.style.cssText = 'text-align:center; padding:8px 0;';
+          f.innerHTML = SHOW_DEAD_EXIT
+            ? `<a href="#" style="color:var(--accent-blue)" onclick="SHOW_DEAD_EXIT=false;render(STATE);return false;">隐藏 ${dead.length} 个不可用节点</a>`
+            : `已隐藏 ${dead.length} 个不可用节点 · <a href="#" style="color:var(--accent-blue)" onclick="SHOW_DEAD_EXIT=true;render(STATE);return false;">显示全部</a>`;
+          list.appendChild(f);
+        }
+        return;
+      }
+
       if (!exits.length) {
-        list.innerHTML = '<div class="empty-tip">未启用住宅出口时将由前置加速节点直接出站；如需固定住宅 IP，可在上方添加。</div>';
+        list.innerHTML = '<div class="empty-tip">未添加私人住宅 IP；如需固定独享住宅 IP，可在上方粘贴添加。</div>';
         return;
       }
       exits.forEach(e => {
-        const sel = s.selected_exit_id === e.id;
+        const sel = s.use_exit_hop && s.selected_exit_id === e.id;
         const d = document.createElement('div');
         d.className = 'node-item' + (sel ? ' selected' : '');
-        d.onclick = () => updateSetting({ use_exit_hop: true, selected_exit_id: e.id });
+        d.onclick = () => updateSetting({ use_exit_hop: true, exit_source: 'residential', selected_exit_id: e.id });
         d.innerHTML = `<div><div class="node-title">${sel ? '<i class="check-dot"></i>' : ''}<span>${esc(e.name)}</span></div><div class="meta">${esc(e.type)} · ${esc(e.server)}:${esc(e.port)}</div></div>
           <button class="btn xs danger" onclick="event.stopPropagation();delExit('${esc(e.id)}')">删</button>`;
         list.appendChild(d);
@@ -798,6 +919,34 @@
       } catch (e) { setBanner(e.message, 'err'); }
     }
     async function delSub(id) { await callNative('del_sub', { id }); await refreshState(); }
+    async function setExitSource(src) {
+      await updateSetting({ exit_source: src });
+    }
+    async function refreshVpnGate() {
+      setBanner('正在拉取免费住宅家宽（含欧美配额与双源核验）...');
+      try {
+        const r = await callNative('vpngate_refresh');
+        await refreshState();
+        setBanner(`已拉取 ${r.count} 个节点（其中家宽 ${r.residential_count} 个）${r.used_relay ? ' · 已自动借用免费前置拉取' : ''}`, 'ok');
+      } catch (e) {
+        setBanner(e.message, 'err');
+      }
+    }
+    async function testVpnGate(nodeId = '', nodeName = '') {
+      const country = document.getElementById('vgCountryFilter') ? document.getElementById('vgCountryFilter').value : 'ALL';
+      setBanner(nodeName ? `正在测速：${nodeName}...` : '正在实测家宽 OpenVPN 连通性，请稍候...');
+      try {
+        const r = await callNative('vpngate_test', { country, max_test: 12, node_id: nodeId });
+        await refreshState();
+        if (nodeId) {
+          setBanner(r.alive > 0 ? `${nodeName} 可用（${r.best_ms}ms）` : `${nodeName} 超时或握手失败`, r.alive > 0 ? 'ok' : 'err');
+        } else {
+          setBanner(r.alive > 0 ? `家宽优选完成：可用 ${r.alive}/${r.tested} 条 · 最快 ${r.best_name} (${r.best_ms}ms)` : `测速完成：${r.tested} 条均超时，可换国家或重新拉取`, r.alive > 0 ? 'ok' : 'err');
+        }
+      } catch (e) {
+        setBanner(e.message, 'err');
+      }
+    }
     async function addExit() {
       const raw = document.getElementById('exitRawInput').value.trim();
       if (!raw) return;

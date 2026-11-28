@@ -223,6 +223,18 @@ class MainActivity : AppCompatActivity() {
                             core.deleteExitNode(body.optString("id", ""))
                             resolveJs(reqId, true, JSONObject().put("ok", true).toString())
                         }
+                        "vpngate_refresh" -> {
+                            val res = core.refreshVpnGate()
+                            resolveJs(reqId, true, res.toString())
+                        }
+                        "vpngate_test" -> {
+                            val res = core.testVpnGateNodes(
+                                country = body.optString("country", "ALL"),
+                                maxTest = body.optInt("max_test", 12),
+                                nodeId = body.optString("node_id", "")
+                            )
+                            resolveJs(reqId, true, res.toString())
+                        }
                         "connect" -> {
                             val prep = VpnService.prepare(this@MainActivity)
                             if (prep != null) {

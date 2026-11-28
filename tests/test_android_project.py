@@ -78,6 +78,18 @@ class TestAndroidProjectAndWorkflow(unittest.TestCase):
         main_act = (ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "MainActivity.kt").read_text(encoding="utf-8")
         self.assertIn("StarBridge-update.apk", main_act)
         self.assertIn("copyTo(dest, overwrite = true)", core_mgr)
+        self.assertIn("vpngate_refresh", main_act)
+        self.assertIn("vpngate_test", main_act)
+
+        vpngate_kt = ROOT / "android" / "app" / "src" / "main" / "java" / "com" / "starbridge" / "panel" / "VpnGate.kt"
+        self.assertTrue(vpngate_kt.exists())
+        vpngate_src = vpngate_kt.read_text(encoding="utf-8")
+        self.assertIn("fetchVpnGateNodes", vpngate_src)
+        self.assertIn("PRIORITY_WESTERN_COUNTRIES", vpngate_src)
+        self.assertIn("refreshVpnGate", core_mgr)
+        self.assertIn("testVpnGateNodes", core_mgr)
+        self.assertIn("vgCountryFilter", android_html)
+        self.assertIn("refreshVpnGate", android_html)
 
         self.assertTrue((ROOT / "android" / "app" / "src" / "main" / "res" / "mipmap-anydpi-v26" / "ic_launcher.xml").exists())
         self.assertTrue((ROOT / "android" / "app" / "src" / "main" / "res" / "drawable" / "ic_launcher_fg.xml").exists())

@@ -108,7 +108,9 @@ class CoreManager(private val context: Context) {
             .put("selected_underlay", "")
             .put("use_awg", true)
             .put("use_exit_hop", false)
+            .put("exit_source", "vpngate")
             .put("selected_exit_id", "")
+            .put("selected_vpngate_id", "")
             .put("route_mode", "bypass_cn")
             .put("smart_auto_select", false)
         return JSONObject()
@@ -119,6 +121,7 @@ class CoreManager(private val context: Context) {
             .put("warp_account", JSONObject())
             .put("warp_endpoints", JSONArray())
             .put("exits", JSONArray())
+            .put("vpngate_nodes", JSONArray())
     }
 
     private fun loadState(): JSONObject = synchronized(lock) {
@@ -132,6 +135,11 @@ class CoreManager(private val context: Context) {
             if (!s.has("warp_account")) s.put("warp_account", JSONObject())
             if (!s.has("warp_endpoints")) s.put("warp_endpoints", JSONArray())
             if (!s.has("exits")) s.put("exits", JSONArray())
+            if (!s.has("vpngate_nodes")) s.put("vpngate_nodes", JSONArray())
+            val stObj = s.getJSONObject("settings")
+            if (!stObj.has("exit_source")) {
+                stObj.put("exit_source", if (s.getJSONArray("exits").length() > 0) "residential" else "vpngate")
+            }
             s
         } catch (_: Exception) {
             defaultState()
@@ -284,6 +292,28 @@ class CoreManager(private val context: Context) {
             )
         }
 
+        val vgNodes = st.optJSONArray("vpngate_nodes") ?: JSONArray()
+        val vgSummary = JSONArray()
+        for (i in 0 until vgNodes.length()) {
+            val it = vgNodes.getJSONObject(i)
+            vgSummary.put(
+                JSONObject()
+                    .put("id", it.optString("id"))
+                    .put("name", it.optString("name"))
+                    .put("ip", it.optString("ip"))
+                    .put("port", it.optInt("port"))
+                    .put("proto", it.optString("proto"))
+                    .put("country_short", it.optString("country_short"))
+                    .put("country_long", it.optString("country_long"))
+                    .put("line_class", it.optString("line_class"))
+                    .put("isp", it.optString("isp"))
+                    .put("score", it.optInt("score"))
+                    .put("speed_mbps", it.optDouble("speed_mbps", 0.0))
+                    .put("ping", it.optInt("ping", 999))
+                    .put("delay_ms", it.opt("delay_ms"))
+            )
+        }
+
         val live = if (running) getLiveStatus() else JSONObject()
         return JSONObject()
             .put("app_version", getAppVersion())
@@ -322,6 +352,7 @@ class CoreManager(private val context: Context) {
             .put("sub_underlays", subUnderlays)
             .put("underlay_subs", subSummary)
             .put("exits", exitSummary)
+            .put("vpngate_nodes", vgSummary)
             .put(
                 "smart_status",
                 JSONObject()
@@ -577,7 +608,10 @@ class CoreManager(private val context: Context) {
             changedKeys.add(k)
         }
         saveState(st)
-        val routingKeys = setOf("underlay_strategy", "selected_underlay", "use_awg", "use_exit_hop", "selected_exit_id", "route_mode")
+        val routingKeys = setOf(
+            "underlay_strategy", "selected_underlay", "use_awg",
+            "use_exit_hop", "exit_source", "selected_exit_id", "selected_vpngate_id", "route_mode"
+        )
         if (running && changedKeys.any { it in routingKeys }) {
             reloadExec.execute {
                 runCatching { hotReloadConfig() }
@@ -904,10 +938,263 @@ class CoreManager(private val context: Context) {
         if (added > 0) {
             val s = st.getJSONObject("settings")
             s.put("use_exit_hop", true)
+            s.put("exit_source", "residential")
             s.put("selected_exit_id", lastId)
         }
         saveState(st)
         return JSONObject().put("ok", true).put("added", added).put("selected_exit_id", lastId)
+    }
+
+    fun refreshVpnGate(): JSONObject {
+        var usedRelay = false
+        var nodes: JSONArray? = null
+
+        if (running) {
+            val pxClient = directHttp.newBuilder()
+                .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MIXED_PORT)))
+                .connectTimeout(12, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .build()
+            nodes = VpnGate.fetchVpnGateNodes(pxClient)
+        } else {
+            try {
+                val fastDirect = directHttp.newBuilder()
+                    .connectTimeout(6, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build()
+                nodes = VpnGate.fetchVpnGateNodes(fastDirect)
+            } catch (_: Exception) {
+                usedRelay = true
+                var st = loadState()
+                var underlays = collectHop1Pool(st, "free").map { it.second }
+                if (underlays.isEmpty()) {
+                    underlays = collectHop1Pool(st, "all").map { it.second }
+                }
+                if (underlays.isEmpty()) {
+                    pullFreeUnderlays()
+                    st = loadState()
+                    underlays = collectHop1Pool(st, "free").map { it.second }
+                }
+                if (underlays.isEmpty()) {
+                    error("未能准备可用的免费前置节点用于拉取家宽列表，请先在「加速线路」拉取节点")
+                }
+                val fetched = withTempBootstrapProxy(underlays.take(20)) { port ->
+                    val bootClient = directHttp.newBuilder()
+                        .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
+                        .connectTimeout(12, TimeUnit.SECONDS)
+                        .readTimeout(20, TimeUnit.SECONDS)
+                        .build()
+                    VpnGate.fetchVpnGateNodes(bootClient)
+                }
+                nodes = fetched ?: error("VPN Gate 免费家宽列表拉取失败（网络超时），请先连接加速线路后再拉取")
+            }
+        }
+
+        val finalNodes = nodes ?: JSONArray()
+        val st = loadState()
+        st.put("vpngate_nodes", finalNodes)
+        val settings = st.getJSONObject("settings")
+        val selId = settings.optString("selected_vpngate_id", "")
+        var hasMatch = false
+        for (i in 0 until finalNodes.length()) {
+            if (finalNodes.getJSONObject(i).optString("id") == selId) {
+                hasMatch = true
+                break
+            }
+        }
+        if (!hasMatch && finalNodes.length() > 0) {
+            settings.put("selected_vpngate_id", finalNodes.getJSONObject(0).optString("id"))
+        }
+        saveState(st)
+
+        var resCnt = 0
+        for (i in 0 until finalNodes.length()) {
+            if (finalNodes.getJSONObject(i).optString("line_class") == "residential") resCnt++
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("count", finalNodes.length())
+            .put("residential_count", resCnt)
+            .put("used_relay", usedRelay)
+    }
+
+    fun testVpnGateNodes(country: String = "ALL", maxTest: Int = 12, nodeId: String = ""): JSONObject {
+        if (!mihomoExe.isFile) error("未找到 libmihomo.so 内核文件")
+        var st = loadState()
+        var vgArr = st.optJSONArray("vpngate_nodes") ?: JSONArray()
+        if (vgArr.length() == 0) {
+            refreshVpnGate()
+            st = loadState()
+            vgArr = st.optJSONArray("vpngate_nodes") ?: JSONArray()
+        }
+        val cap = maxTest.coerceIn(1, 40)
+        val allList = (0 until vgArr.length()).map { vgArr.getJSONObject(it) }
+        val targets = if (nodeId.isNotEmpty()) {
+            allList.filter { it.optString("id") == nodeId }
+        } else {
+            val pool = allList.filter { country.isBlank() || country == "ALL" || it.optString("country_short") == country }
+            val resFirst = pool.filter { it.optString("line_class") == "residential" }
+            val dcRest = pool.filter { it.optString("line_class") != "residential" }
+            (resFirst + dcRest).take(cap)
+        }
+        if (targets.isEmpty()) error("当前筛选条件下没有可测试的免费家宽节点")
+
+        val settings = st.getJSONObject("settings")
+        val strat = settings.optString("underlay_strategy", "auto_free")
+        val tempMixed = ServerSocket(0).use { it.localPort }
+        val tempCtrl = ServerSocket(0).use { it.localPort }
+        val tempDir = File(coreDir, "vg_probe_${System.currentTimeMillis()}").apply { mkdirs() }
+        var tmpXray: Process? = null
+        var tmpMihomo: Process? = null
+
+        val delaysById = HashMap<String, Int?>()
+        try {
+            val proxies = ArrayList<Map<String, Any?>>()
+            val groups = ArrayList<Map<String, Any?>>()
+            val aliasToId = LinkedHashMap<String, String>()
+
+            if (strat == "direct") {
+                targets.forEachIndexed { idx, n ->
+                    val ob = VpnGate.buildMihomoOpenvpnOutbound(n)
+                    val alias = "VG_PROBE_$idx"
+                    ob["name"] = alias
+                    proxies.add(ob)
+                    aliasToId[alias] = n.optString("id")
+                }
+            } else {
+                var underlays = collectHop1Pool(st, when (strat) {
+                    "warp_only" -> "warp"
+                    "public_only" -> "public"
+                    "custom_only" -> "user"
+                    "auto_free", "auto" -> "free"
+                    else -> "all"
+                }).map { it.second }
+                if (underlays.isEmpty()) underlays = collectHop1Pool(st, "free").map { it.second }
+                val hop1 = dedupeAndStrip(underlays)
+                val hop1Names = hop1.map { it["name"].toString() }
+                proxies.addAll(hop1)
+                groups.add(
+                    mapOf(
+                        "name" to "HOP1",
+                        "type" to if (hop1Names.isNotEmpty()) "url-test" else "select",
+                        "proxies" to if (hop1Names.isNotEmpty()) hop1Names else listOf("DIRECT"),
+                        "url" to "http://www.gstatic.com/generate_204",
+                        "interval" to 120
+                    )
+                )
+                targets.forEachIndexed { idx, n ->
+                    val ob = VpnGate.buildMihomoOpenvpnOutbound(n)
+                    val alias = "VG_PROBE_$idx"
+                    ob["name"] = alias
+                    if (hop1Names.isNotEmpty()) ob["dialer-proxy"] = "HOP1"
+                    proxies.add(ob)
+                    aliasToId[alias] = n.optString("id")
+                }
+            }
+
+            val bridged = XrayBridge.prepare(proxies, xrayExe)
+            if (bridged.xrayConfigJson != null && xrayExe.isFile) {
+                val xf = File(tempDir, "xray.json").apply { writeText(bridged.xrayConfigJson) }
+                tmpXray = ProcessBuilder(xrayExe.absolutePath, "run", "-c", xf.absolutePath)
+                    .directory(coreDir)
+                    .redirectErrorStream(true)
+                    .redirectOutput(devNull)
+                    .start()
+                Thread.sleep(250)
+            }
+            groups.add(mapOf("name" to "VG_SEL", "type" to "select", "proxies" to aliasToId.keys.toList()))
+            val cfg = linkedMapOf<String, Any?>(
+                "mixed-port" to tempMixed,
+                "allow-lan" to false,
+                "mode" to "rule",
+                "log-level" to "silent",
+                "external-controller" to "127.0.0.1:$tempCtrl",
+                "dns" to mapOf("enable" to false),
+                "proxies" to bridged.mihomoProxies,
+                "proxy-groups" to groups,
+                "rules" to listOf("MATCH,VG_SEL")
+            )
+            val cf = File(tempDir, "config.yaml").apply { writeText(buildYamlStr(cfg)) }
+            tmpMihomo = ProcessBuilder(mihomoExe.absolutePath, "-d", coreDir.absolutePath, "-f", cf.absolutePath)
+                .directory(coreDir)
+                .redirectErrorStream(true)
+                .redirectOutput(devNull)
+                .start()
+
+            if (!waitForPort(tempCtrl, 5000)) error("临时测速内核启动超时")
+
+            val exec = Executors.newFixedThreadPool(6)
+            val futures = aliasToId.entries.map { (alias, nid) ->
+                exec.submit(Callable {
+                    val d = runCatching { probeSingleDelay(tempCtrl, alias, timeoutMs = 5500) }.getOrNull()
+                    nid to d
+                })
+            }
+            for (f in futures) {
+                runCatching {
+                    val (nid, d) = f.get(7, TimeUnit.SECONDS)
+                    delaysById[nid] = d
+                }
+            }
+            exec.shutdownNow()
+        } finally {
+            runCatching { tmpMihomo?.destroy() }
+            runCatching { tmpXray?.destroy() }
+            runCatching { tempDir.deleteRecursively() }
+        }
+
+        for (obj in allList) {
+            val nid = obj.optString("id")
+            if (delaysById.containsKey(nid)) {
+                val ms = delaysById[nid]
+                obj.put("delay_ms", if (ms != null && ms > 0) ms else -1)
+            }
+        }
+        val finalSorted = if (nodeId.isEmpty()) {
+            allList.sortedWith { a, b ->
+                fun tier(o: JSONObject): Int {
+                    val d = o.optInt("delay_ms", 0)
+                    return when {
+                        d > 0 -> 0
+                        d == -1 -> 2
+                        else -> 1
+                    }
+                }
+                val ta = tier(a)
+                val tb = tier(b)
+                if (ta != tb) return@sortedWith ta - tb
+                val sp = b.optDouble("speed_mbps", 0.0).compareTo(a.optDouble("speed_mbps", 0.0))
+                if (sp != 0) return@sortedWith sp
+                val da = a.optInt("delay_ms", 99999).let { if (it > 0) it else 99999 }
+                val db = b.optInt("delay_ms", 99999).let { if (it > 0) it else 99999 }
+                da - db
+            }
+        } else {
+            allList
+        }
+        val nextArr = JSONArray()
+        finalSorted.forEach { nextArr.put(it) }
+        st.put("vpngate_nodes", nextArr)
+
+        val alivePool = finalSorted.filter {
+            it.optInt("delay_ms", 0) > 0 &&
+                (country.isBlank() || country == "ALL" || it.optString("country_short") == country)
+        }
+        val best = alivePool.firstOrNull()
+        if (nodeId.isEmpty() && best != null) {
+            settings.put("selected_vpngate_id", best.optString("id"))
+        }
+        saveState(st)
+        if (nodeId.isEmpty() && best != null && running && settings.optBoolean("use_exit_hop", false)) {
+            reloadExec.execute { runCatching { hotReloadConfig() } }
+        }
+
+        return JSONObject()
+            .put("ok", true)
+            .put("tested", targets.size)
+            .put("alive", delaysById.values.count { it != null && it > 0 })
+            .put("best_name", best?.optString("name", "") ?: if (nodeId.isNotEmpty()) targets[0].optString("name") else "")
+            .put("best_ms", best?.optInt("delay_ms", -1) ?: (delaysById[nodeId] ?: -1))
     }
 
     fun deleteExitNode(id: String) {
@@ -1223,13 +1510,20 @@ class CoreManager(private val context: Context) {
         }
     }
 
-    private fun probeSingleDelay(ctrlPort: Int, alias: String): Int? {
+    private fun probeSingleDelay(ctrlPort: Int, alias: String, timeoutMs: Int = 2800): Int? {
         val enc = URLEncoder.encode(alias, "UTF-8").replace("+", "%20")
+        val reqHttp = if (timeoutMs > 3000) {
+            directHttp.newBuilder()
+                .readTimeout((timeoutMs / 1000L) + 4L, TimeUnit.SECONDS)
+                .build()
+        } else {
+            directHttp
+        }
         for (testUrl in listOf("https://www.gstatic.com/generate_204", "http://cp.cloudflare.com/generate_204")) {
             try {
-                val u = "http://127.0.0.1:$ctrlPort/proxies/$enc/delay?timeout=2800&url=${URLEncoder.encode(testUrl, "UTF-8")}"
+                val u = "http://127.0.0.1:$ctrlPort/proxies/$enc/delay?timeout=$timeoutMs&url=${URLEncoder.encode(testUrl, "UTF-8")}"
                 val req = Request.Builder().url(u).build()
-                directHttp.newCall(req).execute().use { r ->
+                reqHttp.newCall(req).execute().use { r ->
                     if (r.isSuccessful) {
                         val d = JSONObject(r.body?.string() ?: "{}").optInt("delay", 0)
                         if (d > 0) return d
@@ -1306,22 +1600,58 @@ class CoreManager(private val context: Context) {
         var finalGroup = "HOP1"
         if (fs.optBoolean("use_exit_hop", false)) {
             val exits = fresh.getJSONArray("exits")
-            val selExitId = fs.optString("selected_exit_id")
-            var chosenExit: JSONObject? = null
-            for (i in 0 until exits.length()) {
-                val e = exits.getJSONObject(i)
-                if (e.optString("id") == selExitId || chosenExit == null) chosenExit = e
-                if (e.optString("id") == selExitId) break
-            }
-            if (chosenExit != null) {
-                val exitPx = jsonToMap(chosenExit.getJSONObject("proxy"))
-                exitPx["name"] = "EXIT-${chosenExit.optString("name", "node")}"
-                if (strat != "direct" && hop1Names.isNotEmpty()) {
-                    exitPx["dialer-proxy"] = "HOP1"
+            val vgNodes = fresh.optJSONArray("vpngate_nodes") ?: JSONArray()
+            val exitSource = fs.optString("exit_source", if (exits.length() > 0 && vgNodes.length() == 0) "residential" else "vpngate")
+
+            if (exitSource == "vpngate") {
+                val vgList = (0 until vgNodes.length()).map { vgNodes.getJSONObject(it) }
+                val selVgId = fs.optString("selected_vpngate_id")
+                val primary = vgList.firstOrNull { it.optString("id") == selVgId } ?: vgList.firstOrNull()
+                if (primary != null) {
+                    val primaryOb = VpnGate.buildMihomoOpenvpnOutbound(primary)
+                    val primaryName = "EXIT-${primary.optString("name", "vpngate")}"
+                    primaryOb["name"] = primaryName
+                    if (strat != "direct" && hop1Names.isNotEmpty()) {
+                        primaryOb["dialer-proxy"] = "HOP1"
+                    }
+                    allProxies.add(primaryOb)
+                    val exitNames = ArrayList<String>()
+                    exitNames.add(primaryName)
+
+                    val primaryId = primary.optString("id")
+                    val resBackups = vgList.filter { it.optString("line_class") == "residential" && it.optString("id") != primaryId }
+                    val dcBackups = vgList.filter { it.optString("line_class") != "residential" && it.optString("id") != primaryId }
+                    (resBackups + dcBackups).take(5).forEachIndexed { idx, cand ->
+                        val candOb = VpnGate.buildMihomoOpenvpnOutbound(cand)
+                        val candName = "EXIT-备${idx + 1}-${cand.optString("name", "vg")}"
+                        candOb["name"] = candName
+                        if (strat != "direct" && hop1Names.isNotEmpty()) {
+                            candOb["dialer-proxy"] = "HOP1"
+                        }
+                        allProxies.add(candOb)
+                        exitNames.add(candName)
+                    }
+                    groups.add(mapOf("name" to "EXIT", "type" to "select", "proxies" to exitNames))
+                    finalGroup = "EXIT"
                 }
-                allProxies.add(exitPx)
-                groups.add(mapOf("name" to "EXIT", "type" to "select", "proxies" to listOf(exitPx["name"].toString())))
-                finalGroup = "EXIT"
+            } else {
+                val selExitId = fs.optString("selected_exit_id")
+                var chosenExit: JSONObject? = null
+                for (i in 0 until exits.length()) {
+                    val e = exits.getJSONObject(i)
+                    if (e.optString("id") == selExitId || chosenExit == null) chosenExit = e
+                    if (e.optString("id") == selExitId) break
+                }
+                if (chosenExit != null) {
+                    val exitPx = jsonToMap(chosenExit.getJSONObject("proxy"))
+                    exitPx["name"] = "EXIT-${chosenExit.optString("name", "node")}"
+                    if (strat != "direct" && hop1Names.isNotEmpty()) {
+                        exitPx["dialer-proxy"] = "HOP1"
+                    }
+                    allProxies.add(exitPx)
+                    groups.add(mapOf("name" to "EXIT", "type" to "select", "proxies" to listOf(exitPx["name"].toString())))
+                    finalGroup = "EXIT"
+                }
             }
         }
 
