@@ -75,6 +75,54 @@ MOCKKEY
         self.assertEqual(ob["mtu"], 1200)  # UDP MTU capped at 1200
         self.assertEqual(ob["server"], "198.51.100.5")
 
+    def test_select_candidates_preserves_western_quota_and_tcp_priority(self) -> None:
+        pool = [
+            {"country_short": "JP", "proto": "udp", "score": 9000 - i, "speed_mbps": 50.0, "ip": f"1.1.1.{i}"}
+            for i in range(15)
+        ] + [
+            {"country_short": "JP", "proto": "tcp", "score": 5000 - i, "speed_mbps": 20.0, "ip": f"1.1.2.{i}"}
+            for i in range(5)
+        ] + [
+            {"country_short": "US", "proto": "udp", "score": 300, "speed_mbps": 5.0, "ip": "8.8.8.1"},
+            {"country_short": "US", "proto": "tcp", "score": 200, "speed_mbps": 4.0, "ip": "8.8.8.2"},
+            {"country_short": "DE", "proto": "tcp", "score": 150, "speed_mbps": 8.0, "ip": "9.9.9.1"},
+        ]
+        selected = vpngate._select_candidates(pool, max_nodes=10)
+        self.assertEqual(len(selected), 10)
+        ccs = [n["country_short"] for n in selected]
+        self.assertEqual(ccs.count("US"), 2)
+        self.assertEqual(ccs.count("DE"), 1)
+        # TCP nodes should rank before UDP nodes of the same/lower priority tier
+        tcp_indices = [i for i, n in enumerate(selected) if n["proto"] == "tcp"]
+        udp_indices = [i for i, n in enumerate(selected) if n["proto"] == "udp"]
+        self.assertTrue(max(tcp_indices) < min(udp_indices))
+
+    def test_crosscheck_ipwho_downgrades_datacenter_ip(self) -> None:
+        import io
+        import json
+        from unittest import mock
+
+        class _Resp:
+            def __init__(self, payload: dict) -> None:
+                self._b = io.BytesIO(json.dumps(payload).encode("utf-8"))
+            def read(self, n: int = -1) -> bytes:
+                return self._b.read(n)
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+
+        class _Opener:
+            def open(self, req, timeout=5.0):
+                url = req.full_url
+                if url.endswith("203.0.113.10"):
+                    return _Resp({"success": True, "connection": {"asn": 14061, "isp": "DigitalOcean LLC", "org": "DigitalOcean"}})
+                return _Resp({"success": True, "connection": {"asn": 7922, "isp": "Comcast Cable", "org": "Comcast"}})
+
+        hits = vpngate._crosscheck_ipwho(_Opener(), ["203.0.113.10", "73.1.2.3"], timeout=2.0, total_budget_sec=5.0)
+        self.assertIn("203.0.113.10", hits)
+        self.assertNotIn("73.1.2.3", hits)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import concurrent.futures
 import csv
 import io
 import json
+import time
 import urllib.request
 from typing import Any
 
@@ -15,6 +17,13 @@ VPNGATE_API_URLS = (
     "http://www.vpngate.net/api/iphone/",
 )
 IP_API_BATCH_URL = "http://ip-api.com/batch?fields=status,countryCode,isp,org,as,mobile,proxy,hosting,query"
+IPWHO_ENDPOINT = "https://ipwho.is/"
+
+# 为欧美地区保留候选保底配额，避免 VPN Gate 热门前排被日韩高分节点占满后被截断
+PRIORITY_WESTERN_COUNTRIES = frozenset({
+    "US", "CA", "GB", "UK", "DE", "FR", "NL", "CH", "SE", "IT",
+    "ES", "AU", "NZ", "IE", "AT", "BE", "NO", "FI", "PL", "RO", "CZ",
+})
 
 HARD_DC_ASNS = {
     16509, 14618, 15169, 396982, 8075, 13335, 14061, 20473, 63949, 16276,
@@ -41,9 +50,12 @@ DC_KEYWORDS = (
 
 COUNTRY_FLAGS = {
     "JP": "🇯🇵", "KR": "🇰🇷", "US": "🇺🇸", "TW": "🇹🇼", "HK": "🇭🇰",
-    "SG": "🇸🇬", "GB": "🇬🇧", "DE": "🇩🇪", "FR": "🇫🇷", "CA": "🇨🇦",
+    "SG": "🇸🇬", "GB": "🇬🇧", "UK": "🇬🇧", "DE": "🇩🇪", "FR": "🇫🇷", "CA": "🇨🇦",
     "AU": "🇦🇺", "NL": "🇳🇱", "TH": "🇹🇭", "VN": "🇻🇳", "ID": "🇮🇩",
-    "IN": "🇮🇳", "BR": "🇧🇷", "RU": "🇷🇺",
+    "IN": "🇮🇳", "BR": "🇧🇷", "RU": "🇷🇺", "RO": "🇷🇴", "CH": "🇨🇭",
+    "SE": "🇸🇪", "IT": "🇮🇹", "ES": "🇪🇸", "PL": "🇵🇱", "NO": "🇳🇴",
+    "FI": "🇫🇮", "UA": "🇺🇦", "NZ": "🇳🇿", "IE": "🇮🇪", "AT": "🇦🇹",
+    "BE": "🇧🇪", "CZ": "🇨🇿",
 }
 
 
@@ -180,8 +192,81 @@ def build_mihomo_openvpn_outbound(node: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def fetch_vpngate_nodes(proxy_url: str | None = None, max_nodes: int = 80, timeout: float = 12.0) -> list[dict[str, Any]]:
-    """拉取并解析 VPN Gate 列表，优先排序家宽节点。"""
+def _select_candidates(parsed_nodes: list[dict[str, Any]], max_nodes: int) -> list[dict[str, Any]]:
+    """按 TCP 优先与评分排序筛选候选池，同时为欧美地区保留保底配额。"""
+    cap = max(1, int(max_nodes))
+
+    def _node_rank(n: dict[str, Any]) -> tuple[int, int, float]:
+        return (0 if n.get("proto") == "tcp" else 1, -int(n.get("score") or 0), -float(n.get("speed_mbps") or 0.0))
+
+    western = sorted(
+        [n for n in parsed_nodes if str(n.get("country_short", "")).upper() in PRIORITY_WESTERN_COUNTRIES],
+        key=_node_rank,
+    )
+    others = sorted(
+        [n for n in parsed_nodes if str(n.get("country_short", "")).upper() not in PRIORITY_WESTERN_COUNTRIES],
+        key=_node_rank,
+    )
+    if len(parsed_nodes) <= cap:
+        return sorted(parsed_nodes, key=_node_rank)
+
+    western_quota = max(1, cap // 2)
+    picked_western = western[:western_quota]
+    remain = cap - len(picked_western)
+    picked_others = others[:remain]
+    leftover_western = western[western_quota:western_quota + max(0, remain - len(picked_others))]
+    return sorted(picked_western + picked_others + leftover_western, key=_node_rank)
+
+
+def _crosscheck_ipwho(
+    opener: urllib.request.OpenerDirector,
+    ips: list[str],
+    timeout: float = 5.0,
+    total_budget_sec: float = 8.0,
+) -> set[str]:
+    """用 ipwho.is 对疑似家宽 IP 做第二源交叉核验，返回确认为机房的 IP 集合（失败则跳过，不阻塞）。"""
+    dc_ips: set[str] = set()
+    uniq = [ip for ip in dict.fromkeys(ips) if ip][:30]
+    if not uniq:
+        return dc_ips
+
+    deadline = time.monotonic() + total_budget_sec
+
+    def _check_one(ip: str) -> str | None:
+        if time.monotonic() >= deadline:
+            return None
+        try:
+            req = urllib.request.Request(f"{IPWHO_ENDPOINT}{ip}", headers={"User-Agent": "curl/8.0"})
+            with opener.open(req, timeout=timeout) as resp:
+                data = json.loads(resp.read(65536).decode("utf-8", errors="ignore"))
+            if not isinstance(data, dict) or not data.get("success"):
+                return None
+            conn = data.get("connection") or {}
+            asn = int(conn.get("asn") or 0)
+            isp = str(conn.get("isp") or "")
+            org = str(conn.get("org") or "")
+            blob = f"{isp} {org}".lower()
+            is_res_brand = any(b in blob for b in RESIDENTIAL_BRANDS)
+            if asn in HARD_DC_ASNS or (any(k in blob for k in DC_KEYWORDS) and not is_res_brand):
+                return ip
+        except Exception:
+            return None
+        return None
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        futs = [pool.submit(_check_one, ip) for ip in uniq]
+        for fut in concurrent.futures.as_completed(futs, timeout=max(1.0, total_budget_sec + 1.0)):
+            try:
+                hit = fut.result()
+                if hit:
+                    dc_ips.add(hit)
+            except Exception:
+                pass
+    return dc_ips
+
+
+def fetch_vpngate_nodes(proxy_url: str | None = None, max_nodes: int = 200, timeout: float = 12.0) -> list[dict[str, Any]]:
+    """拉取并解析 VPN Gate 列表：扩大候选池至 200、保留欧美配额、TCP 优先并双源核验家宽。"""
     handler = urllib.request.ProxyHandler({"http": proxy_url, "https": proxy_url} if proxy_url else {})
     opener = urllib.request.build_opener(handler)
     raw_csv = ""
@@ -251,9 +336,8 @@ def fetch_vpngate_nodes(proxy_url: str | None = None, max_nodes: int = 80, timeo
             "profile": prof,
         })
 
-    # 先按评分/速度截断候选池再批量查 ip-api 识别家宽
-    parsed_nodes.sort(key=lambda x: (-x["score"], -x["speed_mbps"]))
-    candidates = parsed_nodes[:max_nodes]
+    # 按 TCP 优先与评分截断候选池（为欧美保留配额），再批量查 ip-api 识别家宽
+    candidates = _select_candidates(parsed_nodes, max_nodes=max_nodes)
 
     # 批量查 ip-api 识别家宽 vs 机房
     uniq_ips = list(dict.fromkeys(n["ip"] for n in candidates if n["ip"]))
@@ -276,16 +360,36 @@ def fetch_vpngate_nodes(proxy_url: str | None = None, max_nodes: int = 80, timeo
         except Exception:
             pass
 
-    # 分类并编号命名（如 🇯🇵 JP 家宽 01）
-    counter: dict[tuple[str, str], int] = {}
+    # 第一轮分类
     for n in candidates:
         cls, isp = _classify_node(n["host_name"], ip_info.get(n["ip"]))
         n["line_class"] = cls
         n["isp"] = isp or n["operator"] or "志愿节点"
 
-    # 家宽优先、高分优先
-    candidates.sort(key=lambda x: (0 if x["line_class"] == "residential" else 1, -x["score"], -x["speed_mbps"]))
+    # 第二源 ipwho.is 交叉复核（优先复核欧美及待确认家宽候选）
+    res_ips = [
+        n["ip"] for n in candidates
+        if n["line_class"] == "residential" and n["ip"]
+        and not any(b in str(n.get("isp", "")).lower() for b in RESIDENTIAL_BRANDS)
+    ]
+    if res_ips:
+        dc_hits = _crosscheck_ipwho(opener, res_ips)
+        if dc_hits:
+            for n in candidates:
+                if n["ip"] in dc_hits:
+                    n["line_class"] = "datacenter"
 
+    # 家宽优先、TCP 优先、高分优先
+    candidates.sort(
+        key=lambda x: (
+            0 if x["line_class"] == "residential" else 1,
+            0 if x.get("proto") == "tcp" else 1,
+            -x["score"],
+            -x["speed_mbps"],
+        )
+    )
+
+    counter: dict[tuple[str, str], int] = {}
     for n in candidates:
         cls_cn = "家宽" if n["line_class"] == "residential" else "机房"
         key = (n["country_short"], cls_cn)

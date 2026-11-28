@@ -11,8 +11,8 @@ android {
         applicationId = "com.starbridge.panel"
         minSdk = 29
         targetSdk = 34
-        versionCode = 8
-        versionName = "2.2.6"
+        versionCode = 9
+        versionName = "2.2.7"
 
         ndk {
             abiFilters += listOf("arm64-v8a")

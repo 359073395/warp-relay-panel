@@ -448,7 +448,7 @@
           </span>
           <div>
             <div class="brand-name">星桥</div>
-            <div class="brand-ver" id="verBadge">v2.2.6</div>
+            <div class="brand-ver" id="verBadge">v2.2.7</div>
           </div>
         </div>
         <div class="row" style="gap:6px;">
@@ -943,11 +943,25 @@
       const cSel = document.getElementById('vgCountryFilter');
       const prevCountry = cSel.value || 'ALL';
 
-      const countries = Array.from(new Set(nodes.map(n => n.country_short))).sort();
+      const countByCountry = {};
+      nodes.forEach(n => {
+        if (clsFilter === 'residential' && n.line_class !== 'residential') return;
+        const cc = n.country_short || 'GL';
+        countByCountry[cc] = (countByCountry[cc] || 0) + 1;
+      });
+      const westOrder = ['US', 'CA', 'GB', 'UK', 'DE', 'FR', 'NL', 'CH', 'SE', 'IT', 'ES', 'AU'];
+      const countries = Array.from(new Set(nodes.map(n => n.country_short))).sort((a, b) => {
+        const ia = westOrder.indexOf(a), ib = westOrder.indexOf(b);
+        if (ia !== -1 && ib !== -1) return ia - ib;
+        if (ia !== -1) return -1;
+        if (ib !== -1) return 1;
+        return a.localeCompare(b);
+      });
       cSel.innerHTML = '<option value="ALL">全部国家</option>';
       countries.forEach(c => {
         const opt = document.createElement('option');
-        opt.value = c; opt.textContent = c;
+        const cnt = countByCountry[c] || 0;
+        opt.value = c; opt.textContent = cnt ? `${c} (${cnt})` : c;
         if (c === prevCountry) opt.selected = true;
         cSel.appendChild(opt);
       });
