@@ -53,6 +53,8 @@ class CoreManager(private val context: Context) {
     @Volatile var updateDownloading = false
     @Volatile var updateProgress = 0
     @Volatile var updateMessage = ""
+    @Volatile var vgFetching = false
+    @Volatile var vgMessage = ""
     private var mihomoProc: Process? = null
     private var xrayProc: Process? = null
     private var lastSmartSummary = ""
@@ -65,6 +67,7 @@ class CoreManager(private val context: Context) {
     private val directHttp = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
 
     init {
@@ -367,6 +370,12 @@ class CoreManager(private val context: Context) {
                     .put("progress", updateProgress)
                     .put("message", updateMessage)
             )
+            .put(
+                "vg_state",
+                JSONObject()
+                    .put("active", vgFetching)
+                    .put("message", vgMessage)
+            )
     }
 
     fun getAppVersion(): String {
@@ -587,6 +596,12 @@ class CoreManager(private val context: Context) {
                     .put("progress", updateProgress)
                     .put("message", updateMessage)
             )
+            .put(
+                "vg_state",
+                JSONObject()
+                    .put("active", vgFetching)
+                    .put("message", vgMessage)
+            )
     }
 
     fun readLogs(maxLines: Int = 100): String {
@@ -659,11 +674,12 @@ class CoreManager(private val context: Context) {
             directHttp
         }
         val mirrors = if (proxyPort != null && proxyPort > 0) listOf("") else GH_MIRRORS
+        val fetchHttp = http.newBuilder().callTimeout(10, TimeUnit.SECONDS).build()
         for (prefix in mirrors) {
             try {
                 val url = if (prefix.isEmpty()) PUBLIC_REMOTE_URL else "$prefix$PUBLIC_REMOTE_URL"
                 val req = Request.Builder().url(url).header("User-Agent", "StarBridge/1.0").build()
-                val body = http.newCall(req).execute().use { r ->
+                val body = fetchHttp.newCall(req).execute().use { r ->
                     if (!r.isSuccessful) error("HTTP ${r.code}")
                     r.body?.string() ?: ""
                 }
@@ -675,14 +691,67 @@ class CoreManager(private val context: Context) {
         return emptyList()
     }
 
-    private fun <T> withTempBootstrapProxy(proxies: List<Map<String, Any?>>, block: (Int) -> T): T? {
+    private fun tempMihomoDns(): Map<String, Any?> = mapOf(
+        "enable" to true,
+        "ipv6" to false,
+        "enhanced-mode" to "redir-host",
+        "default-nameserver" to listOf("223.5.5.5", "119.29.29.29"),
+        "proxy-server-nameserver" to listOf("223.5.5.5", "119.29.29.29"),
+        "nameserver" to listOf("223.5.5.5", "119.29.29.29", "1.1.1.1"),
+        "fallback" to listOf("1.1.1.1", "8.8.8.8")
+    )
+
+    private fun collectRankedBootstrapProxies(st: JSONObject, limit: Int = 20): List<Map<String, Any?>> {
+        val pool = collectHop1Pool(st, "all")
+        if (pool.isEmpty()) return emptyList()
+
+        fun delayOf(refObj: Any): Int = (refObj as? JSONObject)?.optInt("delay_ms", 0) ?: 0
+
+        val alive = pool
+            .filter { delayOf(it.third) > 0 }
+            .sortedBy { delayOf(it.third) }
+            .map { it.second }
+
+        val untested = pool.filter { delayOf(it.third) == 0 }
+        val userBucket = untested.filter { it.first.startsWith("custom:") || it.first.startsWith("sub:") }.map { it.second }
+        val warpBucket = untested.filter { it.first.startsWith("warp:") }.map { it.second }
+        val pubBucket = untested.filter { it.first.startsWith("public:") }.map { it.second }
+
+        // 轮流交错拼入自建、WARP 与公益节点，避免大量未测公益节点把 WARP/自建全部挤出上限
+        val mixedUntested = ArrayList<Map<String, Any?>>()
+        val maxLen = maxOf(userBucket.size, warpBucket.size, pubBucket.size)
+        for (i in 0 until maxLen) {
+            if (i < userBucket.size) mixedUntested.add(userBucket[i])
+            if (i < warpBucket.size) mixedUntested.add(warpBucket[i])
+            if (i < pubBucket.size) mixedUntested.add(pubBucket[i])
+        }
+
+        val combined = ArrayList<Map<String, Any?>>(limit)
+        for (p in alive + mixedUntested) {
+            if (combined.size >= limit) break
+            combined.add(p)
+        }
+        if (combined.isEmpty()) {
+            pool.take(limit).forEach { combined.add(it.second) }
+        }
+        return combined
+    }
+
+    private fun <T> withTempBootstrapProxy(
+        proxies: List<Map<String, Any?>>,
+        stageCb: ((String) -> Unit)? = null,
+        throwOnError: Boolean = false,
+        block: (Int) -> T
+    ): T? {
         if (!mihomoExe.isFile || proxies.isEmpty()) return null
         val tempMixed = ServerSocket(0).use { it.localPort }
+        val tempCtrl = ServerSocket(0).use { it.localPort }
         val bridged = XrayBridge.prepare(dedupeAndStrip(proxies), xrayExe)
         val names = bridged.mihomoProxies.map { it["name"].toString() }
         val tmpDir = File(coreDir, "boot_tmp_${System.currentTimeMillis()}").apply { mkdirs() }
         var xProc: Process? = null
         var mProc: Process? = null
+        var lastBlockErr: Exception? = null
         return try {
             if (bridged.xrayConfigJson != null && xrayExe.isFile) {
                 val xf = File(tmpDir, "xray.json").apply { writeText(bridged.xrayConfigJson) }
@@ -698,10 +767,11 @@ class CoreManager(private val context: Context) {
                 "allow-lan" to false,
                 "mode" to "rule",
                 "log-level" to "silent",
-                "dns" to mapOf("enable" to false),
+                "external-controller" to "127.0.0.1:$tempCtrl",
+                "dns" to tempMihomoDns(),
                 "proxies" to bridged.mihomoProxies,
                 "proxy-groups" to listOf(
-                    mapOf("name" to "BOOT", "type" to "url-test", "proxies" to names, "url" to "http://cp.cloudflare.com/generate_204", "interval" to 120)
+                    mapOf("name" to "BOOT", "type" to "select", "proxies" to names)
                 ),
                 "rules" to listOf("MATCH,BOOT")
             )
@@ -711,9 +781,48 @@ class CoreManager(private val context: Context) {
                 .redirectErrorStream(true)
                 .redirectOutput(devNull)
                 .start()
-            if (!waitForPort(tempMixed, 4500)) return null
-            block(tempMixed)
-        } catch (_: Exception) {
+            if (!waitForPort(tempCtrl, 5000)) return null
+
+            // 先用 2.6 秒并发筛出真正在线的引导代理，再执行实际下载，避免盲打死节点卡死
+            stageCb?.invoke("正在探测 ${names.size} 个前置候选通道...")
+            val exec = Executors.newFixedThreadPool(8)
+            val delays = HashMap<String, Int?>()
+            try {
+                val futs = names.map { alias ->
+                    exec.submit(Callable {
+                        val d = runCatching { probeSingleDelay(tempCtrl, alias, timeoutMs = 2600) }.getOrNull()
+                        alias to d
+                    })
+                }
+                for (f in futs) {
+                    runCatching {
+                        val (alias, d) = f.get(3500, TimeUnit.MILLISECONDS)
+                        delays[alias] = d
+                    }
+                }
+            } finally {
+                exec.shutdownNow()
+            }
+
+            val aliveAliases = names
+                .filter { (delays[it] ?: -1) > 0 }
+                .sortedBy { delays[it] ?: 99999 }
+                .take(4)
+            val tryAliases = aliveAliases.ifEmpty { names.take(3) }
+
+            for ((idx, alias) in tryAliases.withIndex()) {
+                runCatching { switchGroupOnPort(tempCtrl, "BOOT", alias) }
+                stageCb?.invoke("正通过前置通道 (${idx + 1}/${tryAliases.size}) 拉取...")
+                try {
+                    return block(tempMixed)
+                } catch (e: Exception) {
+                    lastBlockErr = e
+                }
+            }
+            if (lastBlockErr != null && throwOnError) throw lastBlockErr!!
+            null
+        } catch (e: Exception) {
+            if (throwOnError) throw e
             null
         } finally {
             runCatching { mProc?.destroy() }
@@ -946,76 +1055,109 @@ class CoreManager(private val context: Context) {
     }
 
     fun refreshVpnGate(): JSONObject {
-        var usedRelay = false
-        var nodes: JSONArray? = null
+        vgFetching = true
+        vgMessage = "正在准备拉取免费住宅家宽..."
+        try {
+            var usedRelay = false
+            var nodes: JSONArray? = null
+            var lastErrMsg = ""
 
-        if (running) {
-            val pxClient = directHttp.newBuilder()
-                .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MIXED_PORT)))
-                .connectTimeout(12, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .build()
-            nodes = VpnGate.fetchVpnGateNodes(pxClient)
-        } else {
-            try {
-                val fastDirect = directHttp.newBuilder()
-                    .connectTimeout(6, TimeUnit.SECONDS)
-                    .readTimeout(10, TimeUnit.SECONDS)
-                    .build()
-                nodes = VpnGate.fetchVpnGateNodes(fastDirect)
-            } catch (_: Exception) {
-                usedRelay = true
-                var st = loadState()
-                var underlays = collectHop1Pool(st, "free").map { it.second }
-                if (underlays.isEmpty()) {
-                    underlays = collectHop1Pool(st, "all").map { it.second }
-                }
-                if (underlays.isEmpty()) {
-                    pullFreeUnderlays()
-                    st = loadState()
-                    underlays = collectHop1Pool(st, "free").map { it.second }
-                }
-                if (underlays.isEmpty()) {
-                    error("未能准备可用的免费前置节点用于拉取家宽列表，请先在「加速线路」拉取节点")
-                }
-                val fetched = withTempBootstrapProxy(underlays.take(20)) { port ->
-                    val bootClient = directHttp.newBuilder()
-                        .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
-                        .connectTimeout(12, TimeUnit.SECONDS)
-                        .readTimeout(20, TimeUnit.SECONDS)
+            if (running) {
+                vgMessage = "正在通过当前星桥通道拉取家宽..."
+                try {
+                    val pxClient = directHttp.newBuilder()
+                        .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MIXED_PORT)))
+                        .connectTimeout(8, TimeUnit.SECONDS)
+                        .readTimeout(14, TimeUnit.SECONDS)
+                        .callTimeout(18, TimeUnit.SECONDS)
                         .build()
-                    VpnGate.fetchVpnGateNodes(bootClient)
+                    nodes = VpnGate.fetchVpnGateNodes(pxClient) { vgMessage = it }
+                } catch (e: Exception) {
+                    lastErrMsg = e.message ?: "当前通道超时"
                 }
-                nodes = fetched ?: error("VPN Gate 免费家宽列表拉取失败（网络超时），请先连接加速线路后再拉取")
             }
-        }
 
-        val finalNodes = nodes ?: JSONArray()
-        val st = loadState()
-        st.put("vpngate_nodes", finalNodes)
-        val settings = st.getJSONObject("settings")
-        val selId = settings.optString("selected_vpngate_id", "")
-        var hasMatch = false
-        for (i in 0 until finalNodes.length()) {
-            if (finalNodes.getJSONObject(i).optString("id") == selId) {
-                hasMatch = true
-                break
+            if (nodes == null && !running) {
+                vgMessage = "正在尝试直连 VPN Gate..."
+                try {
+                    val fastDirect = directHttp.newBuilder()
+                        .connectTimeout(3, TimeUnit.SECONDS)
+                        .readTimeout(4, TimeUnit.SECONDS)
+                        .callTimeout(4, TimeUnit.SECONDS)
+                        .build()
+                    nodes = VpnGate.fetchVpnGateNodes(
+                        fastDirect,
+                        apiUrls = listOf("https://www.vpngate.net/api/iphone/")
+                    ) { vgMessage = it }
+                } catch (e: Exception) {
+                    lastErrMsg = e.message ?: "直连受限"
+                }
             }
-        }
-        if (!hasMatch && finalNodes.length() > 0) {
-            settings.put("selected_vpngate_id", finalNodes.getJSONObject(0).optString("id"))
-        }
-        saveState(st)
 
-        var resCnt = 0
-        for (i in 0 until finalNodes.length()) {
-            if (finalNodes.getJSONObject(i).optString("line_class") == "residential") resCnt++
+            if (nodes == null) {
+                usedRelay = true
+                vgMessage = "直连受限，正在准备免费前置节点..."
+                var st = loadState()
+                var underlays = collectRankedBootstrapProxies(st, 20)
+                if (underlays.isEmpty()) {
+                    vgMessage = "未检测到前置节点，正在拉取免费前置..."
+                    runCatching { pullFreeUnderlays() }
+                    st = loadState()
+                    underlays = collectRankedBootstrapProxies(st, 20)
+                }
+                if (underlays.isEmpty()) {
+                    error("未能准备可用的免费前置节点用于拉取家宽列表，请先在「加速线路」点击“拉取免费节点”")
+                }
+                try {
+                    nodes = withTempBootstrapProxy(
+                        underlays,
+                        stageCb = { vgMessage = it },
+                        throwOnError = true
+                    ) { port ->
+                        val bootClient = directHttp.newBuilder()
+                            .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
+                            .connectTimeout(8, TimeUnit.SECONDS)
+                            .readTimeout(15, TimeUnit.SECONDS)
+                            .callTimeout(18, TimeUnit.SECONDS)
+                            .build()
+                        VpnGate.fetchVpnGateNodes(bootClient) { vgMessage = it }
+                    }
+                } catch (e: Exception) {
+                    lastErrMsg = e.message ?: lastErrMsg
+                }
+            }
+
+            val finalNodes = nodes
+                ?: error("免费家宽列表拉取失败（${lastErrMsg.ifBlank { "所有可用通道均超时" }}），请先在「加速线路」测速或确认可用节点后再试")
+            val st = loadState()
+            st.put("vpngate_nodes", finalNodes)
+            val settings = st.getJSONObject("settings")
+            val selId = settings.optString("selected_vpngate_id", "")
+            var hasMatch = false
+            for (i in 0 until finalNodes.length()) {
+                if (finalNodes.getJSONObject(i).optString("id") == selId) {
+                    hasMatch = true
+                    break
+                }
+            }
+            if (!hasMatch && finalNodes.length() > 0) {
+                settings.put("selected_vpngate_id", finalNodes.getJSONObject(0).optString("id"))
+            }
+            saveState(st)
+
+            var resCnt = 0
+            for (i in 0 until finalNodes.length()) {
+                if (finalNodes.getJSONObject(i).optString("line_class") == "residential") resCnt++
+            }
+            return JSONObject()
+                .put("ok", true)
+                .put("count", finalNodes.length())
+                .put("residential_count", resCnt)
+                .put("used_relay", usedRelay)
+        } finally {
+            vgFetching = false
+            vgMessage = ""
         }
-        return JSONObject()
-            .put("ok", true)
-            .put("count", finalNodes.length())
-            .put("residential_count", resCnt)
-            .put("used_relay", usedRelay)
     }
 
     fun testVpnGateNodes(country: String = "ALL", maxTest: Int = 12, nodeId: String = ""): JSONObject {
@@ -1109,7 +1251,7 @@ class CoreManager(private val context: Context) {
                 "mode" to "rule",
                 "log-level" to "silent",
                 "external-controller" to "127.0.0.1:$tempCtrl",
-                "dns" to mapOf("enable" to false),
+                "dns" to tempMihomoDns(),
                 "proxies" to bridged.mihomoProxies,
                 "proxy-groups" to groups,
                 "rules" to listOf("MATCH,VG_SEL")
@@ -1224,12 +1366,15 @@ class CoreManager(private val context: Context) {
         }
     }
 
-    private fun switchGroup(group: String, nodeName: String): Boolean {
+    private fun switchGroupOnPort(ctrlPort: Int, group: String, nodeName: String): Boolean {
         val body = JSONObject().put("name", nodeName).toString().toRequestBody("application/json".toMediaType())
         val enc = URLEncoder.encode(group, "UTF-8").replace("+", "%20")
-        val req = Request.Builder().url("http://127.0.0.1:$CTRL_PORT/proxies/$enc").put(body).build()
+        val req = Request.Builder().url("http://127.0.0.1:$ctrlPort/proxies/$enc").put(body).build()
         return directHttp.newCall(req).execute().use { it.isSuccessful }
     }
+
+    private fun switchGroup(group: String, nodeName: String): Boolean =
+        switchGroupOnPort(CTRL_PORT, group, nodeName)
 
     private fun collectHop1Pool(st: JSONObject, kind: String): List<Triple<String, Map<String, Any?>, Any>> {
         // Triple(key, proxyMap, refObj)
@@ -1363,7 +1508,7 @@ class CoreManager(private val context: Context) {
                 "mode" to "rule",
                 "log-level" to "silent",
                 "external-controller" to "127.0.0.1:$tempCtrl",
-                "dns" to mapOf("enable" to false),
+                "dns" to tempMihomoDns(),
                 "proxies" to bridged.mihomoProxies,
                 "proxy-groups" to listOf(
                     mapOf("name" to "PROBE", "type" to "select", "proxies" to aliases)

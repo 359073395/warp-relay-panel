@@ -21,9 +21,10 @@ object WarpClient {
     private val WARP_PORTS = listOf(2408, 500, 1701, 4500, 894, 908, 942, 1018)
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(12, TimeUnit.SECONDS)
         .writeTimeout(12, TimeUnit.SECONDS)
+        .callTimeout(15, TimeUnit.SECONDS)
         .build()
 
     fun registerAccount(proxyPort: Int? = null): JSONObject {

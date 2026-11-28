@@ -241,7 +241,12 @@ object VpnGate {
         val dcIps = HashSet<String>()
         val uniq = ips.filter { it.isNotBlank() }.distinct().take(30)
         if (uniq.isEmpty()) return dcIps
-        val deadline = System.currentTimeMillis() + 8000L
+        val whoClient = client.newBuilder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(4, TimeUnit.SECONDS)
+            .callTimeout(5, TimeUnit.SECONDS)
+            .build()
+        val deadline = System.currentTimeMillis() + 6000L
         val exec = Executors.newFixedThreadPool(6)
         try {
             val futures = uniq.map { ip ->
@@ -249,7 +254,7 @@ object VpnGate {
                     if (System.currentTimeMillis() >= deadline) return@Callable null
                     try {
                         val req = Request.Builder().url("$IPWHO_ENDPOINT$ip").header("User-Agent", "curl/8.0").build()
-                        client.newCall(req).execute().use { r ->
+                        whoClient.newCall(req).execute().use { r ->
                             if (!r.isSuccessful) return@Callable null
                             val body = r.body?.string() ?: return@Callable null
                             val data = JSONObject(body)
@@ -268,8 +273,9 @@ object VpnGate {
                 })
             }
             for (f in futures) {
-                val leftMs = (deadline - System.currentTimeMillis()).coerceAtLeast(200L)
-                runCatching { f.get(leftMs, TimeUnit.MILLISECONDS) }.getOrNull()?.let { dcIps.add(it) }
+                val leftMs = deadline - System.currentTimeMillis()
+                if (leftMs <= 0L) break
+                runCatching { f.get(leftMs.coerceAtLeast(50L), TimeUnit.MILLISECONDS) }.getOrNull()?.let { dcIps.add(it) }
             }
         } finally {
             exec.shutdownNow()
@@ -311,13 +317,24 @@ object VpnGate {
         return out
     }
 
-    fun fetchVpnGateNodes(client: OkHttpClient, maxNodes: Int = 200): JSONArray {
+    fun fetchVpnGateNodes(
+        client: OkHttpClient,
+        maxNodes: Int = 200,
+        apiUrls: List<String> = VPNGATE_API_URLS,
+        onStage: ((String) -> Unit)? = null
+    ): JSONArray {
+        val fetchClient = if (client.callTimeoutMillis > 0) {
+            client
+        } else {
+            client.newBuilder().callTimeout(20, TimeUnit.SECONDS).build()
+        }
         var rawCsv = ""
         var lastErr: Exception? = null
-        for (apiUrl in VPNGATE_API_URLS) {
+        onStage?.invoke("正在下载 VPN Gate 节点列表...")
+        for (apiUrl in apiUrls) {
             try {
                 val req = Request.Builder().url(apiUrl).header("User-Agent", "curl/8.0").build()
-                client.newCall(req).execute().use { r ->
+                fetchClient.newCall(req).execute().use { r ->
                     if (!r.isSuccessful) error("HTTP ${r.code}")
                     rawCsv = r.body?.string() ?: ""
                 }
@@ -381,12 +398,18 @@ object VpnGate {
         val candidates = selectCandidates(parsedNodes, maxNodes).toMutableList()
         val uniqIps = candidates.map { it.optString("ip") }.filter { it.isNotEmpty() }.distinct()
         val ipInfo = HashMap<String, JSONObject>()
+        val enrichClient = client.newBuilder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(7, TimeUnit.SECONDS)
+            .build()
+        onStage?.invoke("已解析 ${candidates.size} 个候选，正在识别家宽/机房...")
         for (start in uniqIps.indices step 100) {
             val batch = uniqIps.subList(start, minOf(start + 100, uniqIps.size))
             try {
                 val body = JSONArray(batch).toString().toRequestBody("application/json".toMediaType())
                 val req = Request.Builder().url(IP_API_BATCH_URL).post(body).build()
-                client.newCall(req).execute().use { r ->
+                enrichClient.newCall(req).execute().use { r ->
                     if (r.isSuccessful) {
                         val arr = JSONArray(r.body?.string() ?: "[]")
                         for (j in 0 until arr.length()) {
@@ -414,7 +437,8 @@ object VpnGate {
             }
             .map { it.optString("ip") }
         if (resIpsToCheck.isNotEmpty()) {
-            val dcHits = crossCheckIpWho(client, resIpsToCheck)
+            onStage?.invoke("正在二次核验家宽 IP 归属...")
+            val dcHits = crossCheckIpWho(enrichClient, resIpsToCheck)
             if (dcHits.isNotEmpty()) {
                 for (n in candidates) {
                     if (n.optString("ip") in dcHits) {

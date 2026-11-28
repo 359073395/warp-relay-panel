@@ -88,6 +88,8 @@ class TestAndroidProjectAndWorkflow(unittest.TestCase):
         self.assertIn("PRIORITY_WESTERN_COUNTRIES", vpngate_src)
         self.assertIn("refreshVpnGate", core_mgr)
         self.assertIn("testVpnGateNodes", core_mgr)
+        self.assertIn("tempMihomoDns", core_mgr)
+        self.assertIn("vg_state", core_mgr)
         self.assertIn("vgCountryFilter", android_html)
         self.assertIn("refreshVpnGate", android_html)
 
